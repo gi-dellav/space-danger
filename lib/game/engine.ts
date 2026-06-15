@@ -657,10 +657,12 @@ export function gameReducer(state: GameState, action: Action): GameState {
 
     case "LAYOVER": {
       if (!isDocked(state)) return state
+      if (state.credits < 150)
+        return log(state, "Not enough credits for a layover (150 cr).", "bad")
       const system = SYSTEMS_BY_ID[state.currentSystemId]
       let s = state
-      s = { ...s, turn: s.turn + 1, market: generateMarket(system) }
-      s = log(s, `Turn ${s.turn}: layover at ${system.name} — markets shift.`, "info")
+      s = { ...s, turn: s.turn + 1, credits: s.credits - 150, market: generateMarket(system) }
+      s = log(s, `Turn ${s.turn}: layover at ${system.name} — markets shift. (150 cr)`, "info")
       return settleLeg(s)
     }
 

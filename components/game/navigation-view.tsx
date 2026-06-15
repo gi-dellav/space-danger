@@ -70,7 +70,7 @@ export function NavigationView({
                     reachable ? "text-accent" : "text-destructive",
                   )}
                 >
-                  {legs} {legs === 1 ? "leg" : "legs"} · {legs} ly
+                  {legs} ly
                 </span>
                 <Button
                   size="sm"
@@ -90,16 +90,17 @@ export function NavigationView({
         <div className="min-w-0">
           <p className="font-heading text-sm font-semibold text-foreground">Lay Over</p>
           <p className="text-xs text-muted-foreground">
-            Spend a turn docked at {current.name}. Markets shift and prices reset.
+            Spend a turn docked at {current.name}. Markets shift and prices reset. <span className="text-foreground">150 cr</span>
           </p>
         </div>
         <Button
           size="sm"
           variant="secondary"
           className="h-8 shrink-0"
+          disabled={state.credits < 150}
           onClick={() => dispatch({ type: "LAYOVER" })}
         >
-          Pass Turn
+          {state.credits < 150 ? "Can't afford" : "Pass Turn"}
         </Button>
       </div>
     </Panel>
