@@ -111,8 +111,8 @@ export function generateMarket(system: StarSystem): MarketEntry[] {
 function log(state: GameState, text: string, tone: LogTone = "info"): GameState {
   const entry: LogEntry = { id: state.nextLogId, text, tone }
   const next = [...state.log, entry]
-  // keep the most recent 60 entries
-  const trimmed = next.length > 60 ? next.slice(next.length - 60) : next
+  // keep the most recent 20 entries
+  const trimmed = next.length > 20 ? next.slice(next.length - 20) : next
   return { ...state, log: trimmed, nextLogId: state.nextLogId + 1 }
 }
 
@@ -536,7 +536,6 @@ export function gameReducer(state: GameState, action: Action): GameState {
           m.goodId === action.goodId ? { ...m, quantity: m.quantity - qty } : m,
         ),
       }
-      s = log(s, `Bought ${qty}t ${GOODS_BY_ID[action.goodId].name} for ${cost} cr.`, "info")
       return s
     }
 
@@ -837,7 +836,6 @@ export function gameReducer(state: GameState, action: Action): GameState {
             credits: s.credits - cost,
             cargo: { ...s.cargo, [ev.goodId!]: (s.cargo[ev.goodId!] ?? 0) + qty },
           }
-          s = log(s, `Bought ${qty}t of ${GOODS_BY_ID[ev.goodId!].name} for ${cost} cr.`, "good")
         }
         return settleLeg(s)
       }
