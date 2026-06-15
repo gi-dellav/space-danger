@@ -7,6 +7,7 @@ import { StatBar, StatChip } from "./ui"
 
 export function StatusBar({ state }: { state: GameState }) {
   const system = SYSTEMS_BY_ID[state.currentSystemId]
+  const dest = state.voyage ? SYSTEMS_BY_ID[state.voyage.destinationId] : null
   const used = cargoUsed(state.cargo)
 
   return (
@@ -17,13 +18,21 @@ export function StatusBar({ state }: { state: GameState }) {
             SPACE <span className="text-primary">DANGER</span>
           </h1>
           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-            Location: <span className="text-accent">{system.name}</span> · {system.government}
+            {dest ? (
+              <>
+                In transit · <span className="text-accent">{system.name}</span> {"->"}{" "}
+                <span className="text-accent">{dest.name}</span>
+              </>
+            ) : (
+              <>
+                Docked: <span className="text-accent">{system.name}</span> · {system.government}
+              </>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <StatChip label="Credits" value={`${state.credits.toLocaleString()} cr`} tone="primary" />
           <StatChip label="Rating" value={combatRating(state.destroyedShips)} tone="accent" />
-          <StatChip label="Day" value={state.day} />
         </div>
       </div>
 

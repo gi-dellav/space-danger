@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { SYSTEMS, SYSTEMS_BY_ID } from "@/lib/game/data"
-import { distanceBetween, fuelCost } from "@/lib/game/engine"
+import { legsFor } from "@/lib/game/engine"
 import type { Action } from "@/lib/game/engine"
 import type { GameState } from "@/lib/game/types"
 import { cn } from "@/lib/utils"
@@ -26,25 +26,26 @@ export function NavigationView({
 }) {
   const current = SYSTEMS_BY_ID[state.currentSystemId]
   const destinations = SYSTEMS.filter((s) => s.id !== current.id)
-    .map((s) => ({
-      system: s,
-      dist: distanceBetween(current, s),
-      cost: fuelCost(current, s),
-    }))
-    .sort((a, b) => a.dist - b.dist)
+    .map((s) => ({ system: s, legs: legsFor(current, s) }))
+    .sort((a, b) => a.legs - b.legs)
 
   return (
     <Panel
-      title="Galaxy Navigation"
+      title="Set Course"
       right={
         <span className="text-[0.7rem] uppercase tracking-wider text-muted-foreground">
-          Range: <span className="text-foreground">{state.ship.fuel} ly</span>
+          Fuel: <span className="text-foreground">{state.ship.fuel} ly</span>
         </span>
       }
     >
+      <p className="mb-3 text-xs text-muted-foreground">
+        Each voyage is run one leg per turn — every leg burns 1 ly and may spring an encounter.
+        Choose a destination to plot your course, or lay over to wait out the local market.
+      </p>
+
       <ul className="flex flex-col gap-2">
-        {destinations.map(({ system, cost }) => {
-          const reachable = cost <= state.ship.fuel
+        {destinations.map(({ system, legs }) => {
+          const reachable = legs <= state.ship.fuel
           return (
             <li
               key={system.id}
@@ -69,21 +70,38 @@ export function NavigationView({
                     reachable ? "text-accent" : "text-destructive",
                   )}
                 >
-                  {cost} ly
+                  {legs} {legs === 1 ? "leg" : "legs"} · {legs} ly
                 </span>
                 <Button
                   size="sm"
                   disabled={!reachable}
-                  onClick={() => dispatch({ type: "JUMP", systemId: system.id })}
+                  onClick={() => dispatch({ type: "DEPART", systemId: system.id })}
                   className="h-8"
                 >
-                  {reachable ? "Jump" : "No fuel"}
+                  {reachable ? "Depart" : "No fuel"}
                 </Button>
               </div>
             </li>
           )
         })}
       </ul>
+
+      <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-border/60 bg-secondary/40 p-3">
+        <div className="min-w-0">
+          <p className="font-heading text-sm font-semibold text-foreground">Lay Over</p>
+          <p className="text-xs text-muted-foreground">
+            Spend a turn docked at {current.name}. Markets shift and prices reset.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="h-8 shrink-0"
+          onClick={() => dispatch({ type: "LAYOVER" })}
+        >
+          Pass Turn
+        </Button>
+      </div>
     </Panel>
   )
 }

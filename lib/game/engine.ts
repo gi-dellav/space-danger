@@ -5,6 +5,7 @@ import {
   STARTING_CREDITS,
   STARTING_SHIP,
   STARTING_SYSTEM_ID,
+  SYSTEMS,
   SYSTEMS_BY_ID,
   UPGRADES,
 } from "./data"
@@ -21,8 +22,7 @@ import type {
 /* ---------------------------------- utils --------------------------------- */
 
 const rand = (min: number, max: number) => Math.random() * (max - min) + min
-const randInt = (min: number, max: number) =>
-  Math.floor(rand(min, max + 1))
+const randInt = (min: number, max: number) => Math.floor(rand(min, max + 1))
 const chance = (p: number) => Math.random() < p
 const clamp = (v: number, min: number, max: number) =>
   Math.max(min, Math.min(max, v))
@@ -35,8 +35,23 @@ export function fuelCost(a: StarSystem, b: StarSystem): number {
   return Math.max(1, Math.ceil(distanceBetween(a, b)))
 }
 
+// Number of turns (legs) a voyage takes. One unit of fuel is burned per leg.
+export function legsFor(a: StarSystem, b: StarSystem): number {
+  return clamp(Math.max(1, Math.round(distanceBetween(a, b))), 1, 4)
+}
+
 export function cargoUsed(cargo: Record<string, number>): number {
   return Object.values(cargo).reduce((sum, n) => sum + n, 0)
+}
+
+// True when the commander is docked at a station (command phase, no voyage).
+export function isDocked(state: GameState): boolean {
+  return state.phase === "command" && state.voyage === null
+}
+
+// True when the commander is mid-voyage in deep space.
+export function isInTransit(state: GameState): boolean {
+  return state.phase === "command" && state.voyage !== null
 }
 
 export function combatRating(kills: number): string {
@@ -76,7 +91,11 @@ export function generateMarket(system: StarSystem): MarketEntry[] {
     if (good.illegal) {
       // Contraband only shows up in lawless or low-tech ports.
       const available =
-        system.danger >= 3 ? chance(0.8) : system.techLevel <= 4 ? chance(0.45) : chance(0.12)
+        system.danger >= 3
+          ? chance(0.8)
+          : system.techLevel <= 4
+            ? chance(0.45)
+            : chance(0.12)
       qty = available ? randInt(3, 14) : 0
       // High-tech, high-law worlds pay a premium for what little arrives.
       mult = system.danger >= 3 ? rand(0.7, 1.0) : rand(1.4, 2.1)
@@ -101,30 +120,32 @@ function log(state: GameState, text: string, tone: LogTone = "info"): GameState 
 
 export function createInitialState(): GameState {
   const start = SYSTEMS_BY_ID[STARTING_SYSTEM_ID]
-  const base: GameState = {
+  return {
     phase: "menu",
+    turn: 1,
     credits: STARTING_CREDITS,
-    day: 1,
     ship: { ...STARTING_SHIP },
     cargo: {},
     currentSystemId: STARTING_SYSTEM_ID,
     market: generateMarket(start),
+    voyage: null,
     event: null,
     enemy: null,
     playerEvading: false,
     destroyedShips: 0,
+    snapshot: null,
+    report: null,
     log: [],
     nextLogId: 1,
   }
-  return base
 }
 
 export function startNewGame(): GameState {
   let s = createInitialState()
-  s = { ...s, phase: "docked" }
+  s = { ...s, phase: "command" }
   s = log(
     s,
-    `Commander, you are docked at ${SYSTEMS_BY_ID[s.currentSystemId].name} with ${STARTING_CREDITS} credits. Good hunting.`,
+    `Turn 1. Commander, you are docked at ${SYSTEMS_BY_ID[s.currentSystemId].name} with ${STARTING_CREDITS} credits. Good hunting.`,
     "system",
   )
   return s
@@ -172,9 +193,15 @@ function createPolice(): Enemy {
 
 /* ------------------------------ event creation ----------------------------- */
 
-function pickArrivalEvent(state: GameState, system: StarSystem): "combat" | GameEvent | null {
+// Roll the encounter for a single leg. `silent` greatly reduces hostile contact.
+function pickLegEvent(
+  state: GameState,
+  region: StarSystem,
+  silent: boolean,
+): "combat" | GameEvent | null {
+  const dangerMult = silent ? 0.15 : 1
   const r = Math.random()
-  const pirateChance = 0.1 + system.danger * 0.12
+  const pirateChance = (0.1 + region.danger * 0.12) * dangerMult
   const carryingContraband = GOODS.some(
     (g) => g.illegal && (state.cargo[g.id] ?? 0) > 0,
   )
@@ -182,14 +209,14 @@ function pickArrivalEvent(state: GameState, system: StarSystem): "combat" | Game
   if (r < pirateChance) return "combat"
 
   // Police interdiction — more likely if you're dirty.
-  const policeChance = carryingContraband ? 0.28 : 0.08
+  const policeChance = (carryingContraband ? 0.28 : 0.08) * dangerMult
   if (r < pirateChance + policeChance) {
     return {
       kind: "police",
       title: "Police Interdiction",
       text: carryingContraband
-        ? `A ${system.name} police Viper signals you to halt for a cargo scan. Your manifest includes contraband...`
-        : `A ${system.name} police Viper hails you for a routine cargo scan.`,
+        ? `A ${region.name} police Viper signals you to halt for a cargo scan. Your manifest includes contraband...`
+        : `A ${region.name} police Viper hails you for a routine cargo scan.`,
       options: [
         { id: "submit", label: "Submit to scan" },
         { id: "run", label: "Run for it" },
@@ -252,33 +279,133 @@ function pickArrivalEvent(state: GameState, system: StarSystem): "combat" | Game
     }
   }
 
-  return null // clear jump
+  return null // clear leg
 }
 
-/* -------------------------------- arrival --------------------------------- */
+/* ----------------------------- turn lifecycle ------------------------------ */
 
-function arriveDocked(state: GameState, note?: string): GameState {
-  const system = SYSTEMS_BY_ID[state.currentSystemId]
-  let s: GameState = {
+// Capture pre-move values so the summary can show what changed this turn.
+function beginMove(state: GameState): GameState {
+  return {
     ...state,
-    phase: "docked",
+    snapshot: {
+      credits: state.credits,
+      hull: state.ship.hull,
+      fuel: state.ship.fuel,
+      logId: state.nextLogId,
+    },
+  }
+}
+
+// Build the end-of-turn report and enter the summary phase.
+function concludeMove(state: GameState, headline: string): GameState {
+  if (state.phase === "gameover") return state
+  const snap = state.snapshot
+  const entries: LogEntry[] = snap
+    ? state.log.filter((e) => e.id >= snap.logId)
+    : []
+  return {
+    ...state,
+    phase: "summary",
     enemy: null,
     event: null,
     playerEvading: false,
-    market: generateMarket(system),
+    report: {
+      turn: state.turn,
+      headline,
+      entries,
+      creditsDelta: snap ? state.credits - snap.credits : 0,
+      hullDelta: snap ? state.ship.hull - snap.hull : 0,
+      fuelDelta: snap ? state.ship.fuel - snap.fuel : 0,
+      arrived:
+        state.voyage !== null &&
+        state.voyage.legsDone >= state.voyage.legsTotal,
+    },
   }
-  if (note) s = log(s, note, "good")
-  s = log(s, `Docked at ${system.name} Station. (${system.economy}, Tech ${system.techLevel})`, "system")
-  return s
 }
 
-/* ---------------------------------- actions -------------------------------- */
+function destinationName(state: GameState): string {
+  return state.voyage
+    ? SYSTEMS_BY_ID[state.voyage.destinationId].name
+    : SYSTEMS_BY_ID[state.currentSystemId].name
+}
+
+// Resolve a non-combat outcome of a leg and head to the turn summary.
+function settleLeg(state: GameState): GameState {
+  const v = state.voyage
+  if (v && v.legsDone >= v.legsTotal) {
+    return concludeMove(state, `Arrived at ${SYSTEMS_BY_ID[v.destinationId].name}`)
+  }
+  if (v) {
+    return concludeMove(state, `En route to ${SYSTEMS_BY_ID[v.destinationId].name}`)
+  }
+  return concludeMove(state, `Layover at ${SYSTEMS_BY_ID[state.currentSystemId].name}`)
+}
+
+// Advance one leg of the active voyage: burn fuel, roll an event, resolve or defer.
+function advanceLeg(state: GameState, silent: boolean): GameState {
+  if (!state.voyage) return state
+  let s = beginMove(state)
+
+  const fuelUse = silent ? 2 : 1
+  const legsDone = s.voyage!.legsDone + 1
+  const region = SYSTEMS_BY_ID[s.voyage!.destinationId]
+  s = {
+    ...s,
+    turn: s.turn + 1,
+    ship: { ...s.ship, fuel: Math.max(0, s.ship.fuel - fuelUse) },
+    voyage: { ...s.voyage!, legsDone },
+  }
+
+  if (legsDone === 1) {
+    s = log(
+      s,
+      `Turn ${s.turn}: course set for ${region.name} — ${s.voyage!.legsTotal} leg run. Drive engaged.`,
+      "system",
+    )
+  } else {
+    s = log(
+      s,
+      `Turn ${s.turn}: leg ${legsDone}/${s.voyage!.legsTotal} toward ${region.name}.`,
+      "system",
+    )
+  }
+  if (silent) s = log(s, "Running silent — minimal emissions.", "info")
+
+  const outcome = pickLegEvent(s, region, silent)
+
+  if (outcome === "combat") {
+    const enemy = createPirate(region.danger)
+    s = { ...s, phase: "combat", enemy, playerEvading: false }
+    s = log(s, `Mass-lock! A ${enemy.name} drops out of warp and opens fire!`, "combat")
+    return s
+  }
+  if (outcome && typeof outcome === "object") {
+    s = { ...s, phase: "event", event: outcome }
+    s = log(s, `${outcome.title}.`, "info")
+    return s
+  }
+
+  s = log(
+    s,
+    silent ? "Silent running — you slip through undetected." : "Clear space — no contacts.",
+    "info",
+  )
+  return settleLeg(s)
+}
+
+/* --------------------------------- actions -------------------------------- */
 
 export type Action =
   | { type: "NEW_GAME" }
   | { type: "BUY"; goodId: string; qty: number }
   | { type: "SELL"; goodId: string; qty: number }
-  | { type: "JUMP"; systemId: string }
+  | { type: "DEPART"; systemId: string }
+  | { type: "ADVANCE" }
+  | { type: "RUN_SILENT" }
+  | { type: "ABORT" }
+  | { type: "LAYOVER" }
+  | { type: "END_TURN" }
   | { type: "EVENT_CHOICE"; optionId: string }
   | { type: "COMBAT_ACTION"; action: "fire" | "missile" | "evade" | "flee" }
   | { type: "BUY_UPGRADE"; upgradeId: string }
@@ -373,7 +500,16 @@ function handleEnemyDestroyed(state: GameState): GameState {
     }
   }
 
-  return arriveDocked(s, "Threat eliminated. Continuing to dock.")
+  s = log(s, "Threat eliminated.", "good")
+  return settleLeg(s)
+}
+
+// Find the closest system to the commander's current origin (for escapes/aborts).
+function nearestSystem(fromId: string): StarSystem {
+  const from = SYSTEMS_BY_ID[fromId]
+  return SYSTEMS.filter((sys) => sys.id !== fromId).sort(
+    (a, b) => distanceBetween(from, a) - distanceBetween(from, b),
+  )[0]
 }
 
 /* --------------------------------- reducer --------------------------------- */
@@ -384,7 +520,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
       return startNewGame()
 
     case "BUY": {
-      if (state.phase !== "docked") return state
+      if (!isDocked(state)) return state
       const entry = state.market.find((m) => m.goodId === action.goodId)
       if (!entry) return state
       const free = state.ship.cargoCapacity - cargoUsed(state.cargo)
@@ -405,7 +541,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
     }
 
     case "SELL": {
-      if (state.phase !== "docked") return state
+      if (!isDocked(state)) return state
       const entry = state.market.find((m) => m.goodId === action.goodId)
       if (!entry) return state
       const held = state.cargo[action.goodId] ?? 0
@@ -429,7 +565,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
     }
 
     case "REFUEL": {
-      if (state.phase !== "docked") return state
+      if (!isDocked(state)) return state
       const missing = state.ship.maxFuel - state.ship.fuel
       if (missing <= 0) return state
       const pricePer = 20
@@ -445,7 +581,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
     }
 
     case "REPAIR": {
-      if (state.phase !== "docked") return state
+      if (!isDocked(state)) return state
       const missing = state.ship.maxHull - state.ship.hull
       if (missing <= 0) return state
       const pricePer = 12
@@ -461,7 +597,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
     }
 
     case "BUY_UPGRADE": {
-      if (state.phase !== "docked") return state
+      if (!isDocked(state)) return state
       const upgrade = UPGRADES.find((u) => u.id === action.upgradeId)
       if (!upgrade) return state
       const system = SYSTEMS_BY_ID[state.currentSystemId]
@@ -499,46 +635,94 @@ export function gameReducer(state: GameState, action: Action): GameState {
       return s
     }
 
-    case "JUMP": {
-      if (state.phase !== "docked") return state
+    /* ------------------------------ movement ------------------------------ */
+
+    case "DEPART": {
+      if (!isDocked(state)) return state
       const from = SYSTEMS_BY_ID[state.currentSystemId]
       const to = SYSTEMS_BY_ID[action.systemId]
       if (!to || to.id === from.id) return state
-      const cost = fuelCost(from, to)
-      if (cost > state.ship.fuel) return log(state, "Insufficient fuel for that jump.", "bad")
-
-      let s: GameState = {
+      const legs = legsFor(from, to)
+      if (legs > state.ship.fuel)
+        return log(state, `Insufficient fuel — that run needs ${legs} ly.`, "bad")
+      const s: GameState = {
         ...state,
-        ship: { ...state.ship, fuel: state.ship.fuel - cost },
-        day: state.day + 1,
-        currentSystemId: to.id,
+        voyage: { destinationId: to.id, legsTotal: legs, legsDone: 0 },
       }
-      s = log(s, `Hyperspace jump to ${to.name} (${cost} ly).`, "system")
+      return advanceLeg(s, false)
+    }
 
-      const outcome = pickArrivalEvent(s, to)
-      if (outcome === "combat") {
-        const enemy = createPirate(to.danger)
-        s = { ...s, phase: "combat", enemy, playerEvading: false }
-        s = log(s, `Mass-lock! A ${enemy.name} drops out of warp and opens fire!`, "combat")
+    case "ADVANCE": {
+      if (!isInTransit(state)) return state
+      if (state.ship.fuel < 1) return log(state, "Out of fuel — drive offline.", "bad")
+      return advanceLeg(state, false)
+    }
+
+    case "RUN_SILENT": {
+      if (!isInTransit(state)) return state
+      if (state.ship.fuel < 2) return log(state, "Silent running needs 2 ly of fuel.", "bad")
+      return advanceLeg(state, true)
+    }
+
+    case "ABORT": {
+      if (!isInTransit(state)) return state
+      // Break off the run and limp back to the last station.
+      const home = SYSTEMS_BY_ID[state.currentSystemId]
+      let s = beginMove(state)
+      s = {
+        ...s,
+        turn: s.turn + 1,
+        ship: { ...s.ship, fuel: Math.max(0, s.ship.fuel - 1) },
+        voyage: { destinationId: home.id, legsTotal: 1, legsDone: 1 },
+      }
+      s = log(s, `Turn ${s.turn}: voyage aborted — limping back to ${home.name}.`, "system")
+      return settleLeg(s)
+    }
+
+    case "LAYOVER": {
+      if (!isDocked(state)) return state
+      const system = SYSTEMS_BY_ID[state.currentSystemId]
+      let s = beginMove(state)
+      s = { ...s, turn: s.turn + 1, market: generateMarket(system) }
+      s = log(s, `Turn ${s.turn}: layover at ${system.name} — markets shift.`, "info")
+      return settleLeg(s)
+    }
+
+    case "END_TURN": {
+      if (state.phase !== "summary") return state
+      const v = state.voyage
+      const arrived = v !== null && v.legsDone >= v.legsTotal
+      if (arrived) {
+        const dest = SYSTEMS_BY_ID[v!.destinationId]
+        let s: GameState = {
+          ...state,
+          phase: "command",
+          currentSystemId: dest.id,
+          voyage: null,
+          snapshot: null,
+          report: null,
+          market: generateMarket(dest),
+        }
+        s = log(
+          s,
+          `Docked at ${dest.name} Station. (${dest.economy}, Tech ${dest.techLevel})`,
+          "system",
+        )
         return s
       }
-      if (outcome && typeof outcome === "object") {
-        s = { ...s, phase: "event", event: outcome }
-        s = log(s, `${outcome.title}.`, "info")
-        return s
-      }
-      // Clear jump
-      return arriveDocked(s, "Clear jump — no incidents.")
+      // Still in transit, or a docked layover — return to the command phase.
+      return { ...state, phase: "command", snapshot: null, report: null }
     }
 
     case "EVENT_CHOICE": {
       if (state.phase !== "event" || !state.event) return state
       const ev = state.event
-      let s = state
+      const region =
+        SYSTEMS_BY_ID[state.voyage?.destinationId ?? state.currentSystemId]
+      let s = { ...state, event: null }
 
       if (ev.kind === "police") {
         if (action.optionId === "submit") {
-          // Confiscate contraband, fine for it.
           let fine = 0
           const cargo = { ...s.cargo }
           for (const g of GOODS) {
@@ -550,15 +734,14 @@ export function gameReducer(state: GameState, action: Action): GameState {
           if (fine > 0) {
             const paid = Math.min(fine, s.credits)
             s = { ...s, cargo, credits: s.credits - paid }
-            s = log(s, `Contraband confiscated and fined ${paid} cr. Cleared to dock.`, "bad")
+            s = log(s, `Contraband confiscated and fined ${paid} cr. Cleared to proceed.`, "bad")
           } else {
-            s = log(s, "Scan complete. Manifest clean — cleared to dock.", "good")
+            s = log(s, "Scan complete. Manifest clean — cleared to proceed.", "good")
           }
-          return arriveDocked(s)
+          return settleLeg(s)
         }
-        // Run -> fight the police
         const enemy = createPolice()
-        s = { ...s, phase: "combat", enemy, event: null, playerEvading: false }
+        s = { ...s, phase: "combat", enemy, playerEvading: false }
         s = log(s, "You gun the throttle! Police Viper gives chase and opens fire!", "combat")
         return s
       }
@@ -566,11 +749,11 @@ export function gameReducer(state: GameState, action: Action): GameState {
       if (ev.kind === "derelict") {
         if (action.optionId === "ignore") {
           s = log(s, "You leave the hulk drifting in the dark.", "info")
-          return arriveDocked(s)
+          return settleLeg(s)
         }
         if (chance(0.3)) {
-          const enemy = createPirate(SYSTEMS_BY_ID[s.currentSystemId].danger + 1)
-          s = { ...s, phase: "combat", enemy, event: null, playerEvading: false }
+          const enemy = createPirate(region.danger + 1)
+          s = { ...s, phase: "combat", enemy, playerEvading: false }
           s = log(s, "It was a trap! Raiders were hiding in the hulk!", "combat")
           return s
         }
@@ -589,30 +772,30 @@ export function gameReducer(state: GameState, action: Action): GameState {
             s = log(s, "The wreck held cargo, but your hold is full.", "info")
           }
         }
-        return arriveDocked(s)
+        return settleLeg(s)
       }
 
       if (ev.kind === "distress") {
         if (action.optionId === "ignore") {
           s = log(s, "You ignore the signal and press on.", "info")
-          return arriveDocked(s)
+          return settleLeg(s)
         }
         if (chance(0.35)) {
-          const enemy = createPirate(SYSTEMS_BY_ID[s.currentSystemId].danger + 1)
-          s = { ...s, phase: "combat", enemy, event: null, playerEvading: false }
+          const enemy = createPirate(region.danger + 1)
+          s = { ...s, phase: "combat", enemy, playerEvading: false }
           s = log(s, "The 'distress call' was bait — pirates spring an ambush!", "combat")
           return s
         }
         const reward = randInt(200, 700)
         s = { ...s, credits: s.credits + reward }
         s = log(s, `You rescue the stranded pilot. Grateful, they reward you ${reward} cr.`, "good")
-        return arriveDocked(s)
+        return settleLeg(s)
       }
 
       if (ev.kind === "asteroid") {
         if (action.optionId === "avoid") {
           s = log(s, "You plot a careful course around the field.", "info")
-          return arriveDocked(s)
+          return settleLeg(s)
         }
         if (chance(0.4)) {
           const dmg = randInt(8, 22)
@@ -633,13 +816,13 @@ export function gameReducer(state: GameState, action: Action): GameState {
             s = log(s, "Rich ore here, but your hold is full.", "info")
           }
         }
-        return arriveDocked(s)
+        return settleLeg(s)
       }
 
       if (ev.kind === "trader") {
         if (action.optionId === "decline") {
           s = log(s, "You wave the trader off and continue.", "info")
-          return arriveDocked(s)
+          return settleLeg(s)
         }
         const free = s.ship.cargoCapacity - cargoUsed(s.cargo)
         const qty = Math.min(ev.qty ?? 0, free)
@@ -656,10 +839,10 @@ export function gameReducer(state: GameState, action: Action): GameState {
           }
           s = log(s, `Bought ${qty}t of ${GOODS_BY_ID[ev.goodId!].name} for ${cost} cr.`, "good")
         }
-        return arriveDocked(s)
+        return settleLeg(s)
       }
 
-      return arriveDocked(s)
+      return settleLeg(s)
     }
 
     case "COMBAT_ACTION": {
@@ -677,7 +860,6 @@ export function gameReducer(state: GameState, action: Action): GameState {
       if (action.action === "missile") {
         if (s.ship.missiles <= 0) return log(s, "No missiles remaining!", "bad")
         const dmg = randInt(45, 70)
-        // Missiles punch through shields directly to hull.
         const enemy = { ...s.enemy, shield: Math.max(0, s.enemy.shield - 10), hull: s.enemy.hull - dmg }
         s = { ...s, enemy, ship: { ...s.ship, missiles: s.ship.missiles - 1 } }
         s = log(s, `Missile away! ${dmg} damage to the ${s.enemy.name}.`, "combat")
@@ -695,8 +877,13 @@ export function gameReducer(state: GameState, action: Action): GameState {
 
       if (action.action === "flee") {
         if (chance(0.55)) {
-          s = log(s, "You break away and escape into hyperspace!", "good")
-          return arriveDocked(s, "You limp to the nearest dock.")
+          const escape = nearestSystem(s.currentSystemId)
+          s = log(s, `You break away and micro-jump to ${escape.name}!`, "good")
+          s = {
+            ...s,
+            voyage: { destinationId: escape.id, legsTotal: 1, legsDone: 1 },
+          }
+          return settleLeg(s)
         }
         s = log(s, "Escape failed — the enemy stays on your tail!", "bad")
         return enemyTurn(s)

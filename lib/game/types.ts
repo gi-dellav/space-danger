@@ -52,7 +52,8 @@ export interface Enemy {
   bounty: number
 }
 
-export type Phase = "menu" | "docked" | "event" | "combat" | "gameover"
+// The turn cycle: command (MOVE) -> event (EVENT) -> combat (RESOLVE) -> summary (END)
+export type Phase = "menu" | "command" | "event" | "combat" | "summary" | "gameover"
 
 export interface GameEvent {
   kind: string
@@ -65,6 +66,32 @@ export interface GameEvent {
   qty?: number
 }
 
+// An in-progress voyage between two systems, traversed one leg per turn.
+export interface Voyage {
+  destinationId: string
+  legsTotal: number
+  legsDone: number
+}
+
+// Captured at the start of a move so the end-of-turn summary can show deltas.
+export interface MoveSnapshot {
+  credits: number
+  hull: number
+  fuel: number
+  logId: number
+}
+
+// The end-of-turn recap shown during the "summary" phase.
+export interface TurnReport {
+  turn: number
+  headline: string
+  entries: LogEntry[]
+  creditsDelta: number
+  hullDelta: number
+  fuelDelta: number
+  arrived: boolean
+}
+
 export type LogTone = "info" | "good" | "bad" | "combat" | "system"
 
 export interface LogEntry {
@@ -75,16 +102,19 @@ export interface LogEntry {
 
 export interface GameState {
   phase: Phase
+  turn: number
   credits: number
-  day: number
   ship: Ship
   cargo: Record<string, number>
   currentSystemId: string
   market: MarketEntry[]
+  voyage: Voyage | null
   event: GameEvent | null
   enemy: Enemy | null
   playerEvading: boolean
   destroyedShips: number
+  snapshot: MoveSnapshot | null
+  report: TurnReport | null
   log: LogEntry[]
   nextLogId: number
 }
