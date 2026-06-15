@@ -13,9 +13,7 @@ import { MenuScreen } from "./menu-screen"
 import { NavigationView } from "./navigation-view"
 import { ShipyardView } from "./shipyard-view"
 import { StatusBar } from "./status-bar"
-import { SummaryView } from "./summary-view"
 import { TransitView } from "./transit-view"
-import { TurnTracker } from "./turn-tracker"
 
 type Tab = "market" | "navigation" | "shipyard" | "manifest"
 
@@ -44,13 +42,11 @@ export function GameShell() {
   return (
     <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-4 p-4 sm:p-6">
       <StatusBar state={state} />
-      <TurnTracker state={state} />
 
       <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-[1fr_22rem]">
         <div className="flex flex-col gap-4">
           {state.phase === "combat" && <CombatView state={state} dispatch={dispatch} />}
           {state.phase === "event" && <EventView state={state} dispatch={dispatch} />}
-          {state.phase === "summary" && <SummaryView state={state} dispatch={dispatch} />}
           {transit && <TransitView state={state} dispatch={dispatch} />}
 
           {docked && (

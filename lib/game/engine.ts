@@ -284,68 +284,46 @@ function pickLegEvent(
 
 /* ----------------------------- turn lifecycle ------------------------------ */
 
-// Capture pre-move values so the summary can show what changed this turn.
-function beginMove(state: GameState): GameState {
-  return {
-    ...state,
-    snapshot: {
-      credits: state.credits,
-      hull: state.ship.hull,
-      fuel: state.ship.fuel,
-      logId: state.nextLogId,
-    },
+// End the current leg/turn and return to the command phase.
+function settleLeg(state: GameState): GameState {
+  const v = state.voyage
+  const arrived = v !== null && v.legsDone >= v.legsTotal
+  if (arrived) {
+    const dest = SYSTEMS_BY_ID[v!.destinationId]
+    let s: GameState = {
+      ...state,
+      phase: "command",
+      currentSystemId: dest.id,
+      voyage: null,
+      snapshot: null,
+      report: null,
+      enemy: null,
+      event: null,
+      playerEvading: false,
+      market: generateMarket(dest),
+    }
+    s = log(
+      s,
+      `Docked at ${dest.name} Station. (${dest.economy}, Tech ${dest.techLevel})`,
+      "system",
+    )
+    return s
   }
-}
-
-// Build the end-of-turn report and enter the summary phase.
-function concludeMove(state: GameState, headline: string): GameState {
-  if (state.phase === "gameover") return state
-  const snap = state.snapshot
-  const entries: LogEntry[] = snap
-    ? state.log.filter((e) => e.id >= snap.logId)
-    : []
   return {
     ...state,
-    phase: "summary",
+    phase: "command",
+    snapshot: null,
+    report: null,
     enemy: null,
     event: null,
     playerEvading: false,
-    report: {
-      turn: state.turn,
-      headline,
-      entries,
-      creditsDelta: snap ? state.credits - snap.credits : 0,
-      hullDelta: snap ? state.ship.hull - snap.hull : 0,
-      fuelDelta: snap ? state.ship.fuel - snap.fuel : 0,
-      arrived:
-        state.voyage !== null &&
-        state.voyage.legsDone >= state.voyage.legsTotal,
-    },
   }
-}
-
-function destinationName(state: GameState): string {
-  return state.voyage
-    ? SYSTEMS_BY_ID[state.voyage.destinationId].name
-    : SYSTEMS_BY_ID[state.currentSystemId].name
-}
-
-// Resolve a non-combat outcome of a leg and head to the turn summary.
-function settleLeg(state: GameState): GameState {
-  const v = state.voyage
-  if (v && v.legsDone >= v.legsTotal) {
-    return concludeMove(state, `Arrived at ${SYSTEMS_BY_ID[v.destinationId].name}`)
-  }
-  if (v) {
-    return concludeMove(state, `En route to ${SYSTEMS_BY_ID[v.destinationId].name}`)
-  }
-  return concludeMove(state, `Layover at ${SYSTEMS_BY_ID[state.currentSystemId].name}`)
 }
 
 // Advance one leg of the active voyage: burn fuel, roll an event, resolve or defer.
 function advanceLeg(state: GameState, silent: boolean): GameState {
   if (!state.voyage) return state
-  let s = beginMove(state)
+  let s = state
 
   const fuelUse = silent ? 2 : 1
   const legsDone = s.voyage!.legsDone + 1
@@ -405,7 +383,6 @@ export type Action =
   | { type: "RUN_SILENT" }
   | { type: "ABORT" }
   | { type: "LAYOVER" }
-  | { type: "END_TURN" }
   | { type: "EVENT_CHOICE"; optionId: string }
   | { type: "COMBAT_ACTION"; action: "fire" | "missile" | "evade" | "flee" }
   | { type: "BUY_UPGRADE"; upgradeId: string }
@@ -667,7 +644,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
       if (!isInTransit(state)) return state
       // Break off the run and limp back to the last station.
       const home = SYSTEMS_BY_ID[state.currentSystemId]
-      let s = beginMove(state)
+      let s = state
       s = {
         ...s,
         turn: s.turn + 1,
@@ -681,36 +658,10 @@ export function gameReducer(state: GameState, action: Action): GameState {
     case "LAYOVER": {
       if (!isDocked(state)) return state
       const system = SYSTEMS_BY_ID[state.currentSystemId]
-      let s = beginMove(state)
+      let s = state
       s = { ...s, turn: s.turn + 1, market: generateMarket(system) }
       s = log(s, `Turn ${s.turn}: layover at ${system.name} — markets shift.`, "info")
       return settleLeg(s)
-    }
-
-    case "END_TURN": {
-      if (state.phase !== "summary") return state
-      const v = state.voyage
-      const arrived = v !== null && v.legsDone >= v.legsTotal
-      if (arrived) {
-        const dest = SYSTEMS_BY_ID[v!.destinationId]
-        let s: GameState = {
-          ...state,
-          phase: "command",
-          currentSystemId: dest.id,
-          voyage: null,
-          snapshot: null,
-          report: null,
-          market: generateMarket(dest),
-        }
-        s = log(
-          s,
-          `Docked at ${dest.name} Station. (${dest.economy}, Tech ${dest.techLevel})`,
-          "system",
-        )
-        return s
-      }
-      // Still in transit, or a docked layover — return to the command phase.
-      return { ...state, phase: "command", snapshot: null, report: null }
     }
 
     case "EVENT_CHOICE": {

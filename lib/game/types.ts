@@ -53,7 +53,7 @@ export interface Enemy {
 }
 
 // The turn cycle: command (MOVE) -> event (EVENT) -> combat (RESOLVE) -> summary (END)
-export type Phase = "menu" | "command" | "event" | "combat" | "summary" | "gameover"
+export type Phase = "menu" | "command" | "event" | "combat" | "gameover"
 
 export interface GameEvent {
   kind: string
