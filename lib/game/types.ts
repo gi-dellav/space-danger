@@ -5,6 +5,16 @@ export type EconomyType =
   | "Industrial"
   | "High-Tech"
 
+export type FactionId = "federation" | "combine" | "imperial" | "cartel"
+
+export interface Faction {
+  id: FactionId
+  name: string
+  description: string
+  color: string
+  rival: FactionId | null
+}
+
 export interface Good {
   id: string
   name: string
@@ -18,6 +28,7 @@ export interface StarSystem {
   economy: EconomyType
   techLevel: number // 1 - 10
   government: string
+  factionId: FactionId
   danger: number // 0 (safe) - 4 (anarchy)
   x: number
   y: number
@@ -116,12 +127,22 @@ export interface Mission {
   title: string
   description: string
   targetSystemId: string
+  factionId?: FactionId
   requiredGoodId?: string
   requiredQty?: number
   deadlineTurn: number
   reward: number
   completed: boolean
   failed: boolean
+}
+
+export type CrewRole = "pilot" | "gunner" | "engineer" | "medic"
+
+export interface CrewMember {
+  id: number
+  name: string
+  role: CrewRole
+  wagePerTurn: number
 }
 
 export interface GameState {
@@ -145,4 +166,7 @@ export interface GameState {
   nextMissionId: number
   scannerLevel: number
   installedUpgrades: string[]
+  factionRep: Record<FactionId, number>
+  crew: CrewMember[]
+  nextCrewId: number
 }

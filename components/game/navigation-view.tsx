@@ -54,6 +54,9 @@ export function NavigationView({
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-x-2">
                   <span className="font-heading font-semibold text-foreground">{system.name}</span>
+                  {(state.factionRep[system.factionId] ?? 0) <= -8 && system.danger < 3 && (
+                    <span className="text-xs text-red-500" title="Hostile — docking may be denied">⚠</span>
+                  )}
                   <span className="text-xs text-muted-foreground">
                     {system.economy} · Tech {system.techLevel}
                   </span>

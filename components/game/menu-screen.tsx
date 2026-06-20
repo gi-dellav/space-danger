@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 
-export function MenuScreen({ onStart }: { onStart: () => void }) {
+export function MenuScreen({ onStart, hasSave, onContinue }: { onStart: () => void; hasSave?: boolean; onContinue?: () => void }) {
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
       <div className="crt-scanlines w-full max-w-xl rounded-lg border border-border bg-card p-8 text-center">
@@ -21,9 +21,16 @@ export function MenuScreen({ onStart }: { onStart: () => void }) {
           <Feature title="Fight" desc="Survive combat" />
         </div>
 
-        <Button size="lg" className="mt-8 w-full sm:w-auto" onClick={onStart}>
-          Launch Career
-        </Button>
+        <div className="mt-8 flex flex-col items-center gap-3">
+          <Button size="lg" className="w-full sm:w-auto" onClick={onStart}>
+            Launch Career
+          </Button>
+          {hasSave && onContinue && (
+            <Button size="lg" variant="outline" className="w-full sm:w-auto" onClick={onContinue}>
+              Continue Career
+            </Button>
+          )}
+        </div>
         <p className="mt-4 text-[0.7rem] uppercase tracking-wider text-muted-foreground">
           Goal: build your fortune and earn the rank of ELITE
         </p>

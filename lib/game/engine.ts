@@ -1,5 +1,10 @@
 import {
+  CREW_NAMES,
+  CREW_ROLE_BONUS,
+  CREW_WAGE,
   ECONOMY_PROFILE,
+  FACTIONS,
+  FACTIONS_BY_ID,
   GOODS,
   GOODS_BY_ID,
   STARTING_CREDITS,
@@ -10,7 +15,10 @@ import {
   UPGRADES,
 } from "./data"
 import type {
+  CrewMember,
+  CrewRole,
   Enemy,
+  FactionId,
   GameEvent,
   GameState,
   LogEntry,
@@ -65,10 +73,38 @@ export function combatRating(kills: number): string {
   return "Harmless"
 }
 
+export function repLabel(rep: number): string {
+  if (rep >= 10) return "Hero"
+  if (rep >= 8) return "Allied"
+  if (rep >= 5) return "Friendly"
+  if (rep >= 2) return "Cordial"
+  if (rep >= -1) return "Neutral"
+  if (rep >= -4) return "Wary"
+  if (rep >= -7) return "Unfriendly"
+  return "Hostile"
+}
+
+export function repPriceMult(rep: number): number {
+  if (rep >= 10) return 0.8
+  if (rep >= 8) return 0.85
+  if (rep >= 5) return 0.9
+  if (rep >= 2) return 0.95
+  if (rep >= -1) return 1.0
+  if (rep >= -4) return 1.1
+  if (rep >= -7) return 1.2
+  return 1.35
+}
+
 /* --------------------------------- market --------------------------------- */
 
-export function generateMarket(system: StarSystem): MarketEntry[] {
+function systemFactionRep(state: GameState): number {
+  const sys = SYSTEMS_BY_ID[state.currentSystemId]
+  return state.factionRep[sys.factionId] ?? 0
+}
+
+export function generateMarket(system: StarSystem, factionRep?: number): MarketEntry[] {
   const profile = ECONOMY_PROFILE[system.economy]
+  const repMult = factionRep !== undefined ? repPriceMult(factionRep) : 1
   return GOODS.map((good) => {
     let mult = 1
     let qty = randInt(8, 22)
@@ -101,7 +137,7 @@ export function generateMarket(system: StarSystem): MarketEntry[] {
       mult = system.danger >= 3 ? rand(0.7, 1.0) : rand(1.4, 2.1)
     }
 
-    const price = Math.max(1, Math.round(good.basePrice * mult * rand(0.92, 1.08)))
+    const price = Math.max(1, Math.round(good.basePrice * mult * repMult * rand(0.92, 1.08)))
     return { goodId: good.id, price, quantity: qty }
   })
 }
@@ -160,6 +196,7 @@ export function generateMissions(
           title: `Supply ${target.name}`,
           description: `Deliver ${qty}t of ${good.name} to ${target.name}. ${target.economy} worlds are paying premium rates.`,
           targetSystemId: target.id,
+          factionId: target.factionId,
           requiredGoodId: good.id,
           requiredQty: qty,
           deadlineTurn: deadline,
@@ -185,6 +222,7 @@ export function generateMissions(
           title: `Data Courier to ${target.name}`,
           description: `A corporate client needs a secure data chip delivered to ${target.name}. No cargo space required.`,
           targetSystemId: target.id,
+          factionId: target.factionId,
           deadlineTurn: deadline,
           reward,
           completed: false,
@@ -208,6 +246,7 @@ export function generateMissions(
           title: `Pirate Hunt near ${target.name}`,
           description: `A known pirate is operating in the ${target.name} sector. Destroy their ship and claim the bounty.`,
           targetSystemId: target.id,
+          factionId: target.factionId,
           deadlineTurn: deadline,
           reward,
           completed: false,
@@ -234,6 +273,7 @@ export function generateMissions(
           title: `Discreet Delivery to ${target.name}`,
           description: `A shadowy figure needs ${qty}t of ${good.name} moved to ${target.name}. High risk, high reward — avoid police scans.`,
           targetSystemId: target.id,
+          factionId: target.factionId,
           requiredGoodId: good.id,
           requiredQty: qty,
           deadlineTurn: deadline,
@@ -259,6 +299,7 @@ export function generateMissions(
           title: `Passenger to ${target.name}`,
           description: `A nervous passenger needs discrete transport to ${target.name}. Takes 1t of cabin space. May attract unwanted attention.`,
           targetSystemId: target.id,
+          factionId: target.factionId,
           requiredQty: 1,
           deadlineTurn: deadline,
           reward,
@@ -284,6 +325,7 @@ export function generateMissions(
           title: `Ore Contract for ${target.name}`,
           description: `A refinery on ${target.name} needs ${qty}t of raw Minerals. Mine them from asteroid fields on your way.`,
           targetSystemId: target.id,
+          factionId: target.factionId,
           requiredGoodId: "minerals",
           requiredQty: qty,
           deadlineTurn: deadline,
@@ -309,6 +351,7 @@ export function generateMissions(
           title: `Search & Rescue: ${target.name} Sector`,
           description: `A distress beacon has been traced to the ${target.name} spacelane. Investigate and rescue any survivors.`,
           targetSystemId: target.id,
+          factionId: target.factionId,
           deadlineTurn: deadline,
           reward,
           completed: false,
@@ -332,6 +375,7 @@ export function generateMissions(
           title: `Chart ${target.name}`,
           description: `The Explorers' Guild wants updated navigation data from ${target.name}. A long haul, but the pay is excellent.`,
           targetSystemId: target.id,
+          factionId: target.factionId,
           deadlineTurn: deadline,
           reward,
           completed: false,
@@ -404,6 +448,9 @@ export function createInitialState(): GameState {
     nextMissionId: 1,
     scannerLevel: 0,
     installedUpgrades: [],
+    factionRep: { federation: 0, combine: 0, imperial: 0, cartel: 0 },
+    crew: [],
+    nextCrewId: 1,
   }
 }
 
@@ -444,6 +491,53 @@ function createPirate(danger: number): Enemy {
   }
 }
 
+function crewEvadeBonus(crew: CrewMember[]): number {
+  return crew.some((c) => c.role === "pilot") ? 0.1 : 0
+}
+
+function crewDamageMult(crew: CrewMember[]): number {
+  return 1 + (crew.some((c) => c.role === "gunner") ? 0.15 : 0)
+}
+
+function crewHullRepair(crew: CrewMember[]): number {
+  return crew.some((c) => c.role === "engineer") ? 1 : 0
+}
+
+function crewShieldRegen(crew: CrewMember[]): number {
+  return crew.some((c) => c.role === "medic") ? 2 : 0
+}
+
+function crewTotalWages(crew: CrewMember[]): number {
+  return crew.reduce((s, c) => s + CREW_WAGE[c.role], 0)
+}
+
+function changeRep(state: GameState, factionId: FactionId, delta: number): GameState {
+  const newRep = clamp((state.factionRep[factionId] ?? 0) + delta, -10, 10)
+  let s = { ...state, factionRep: { ...state.factionRep, [factionId]: newRep } }
+  // Cross-faction rivalry: gain with one, lose with rival
+  const faction = FACTIONS_BY_ID[factionId]
+  if (faction.rival && delta > 0) {
+    const rivalLoss = Math.min(delta, 2) // max -2 to rival per gain
+    const rivalNew = clamp((s.factionRep[faction.rival] ?? 0) - rivalLoss, -10, 10)
+    s = { ...s, factionRep: { ...s.factionRep, [faction.rival]: rivalNew } }
+  }
+  return s
+}
+
+function payCrewWages(state: GameState): GameState {
+  if (state.crew.length === 0) return state
+  const wages = crewTotalWages(state.crew)
+  if (state.credits < wages) {
+    // Crew abandons if unpaid
+    return {
+      ...state,
+      crew: [],
+      credits: Math.max(0, state.credits),
+    }
+  }
+  return { ...state, credits: state.credits - wages }
+}
+
 function scannerBonus(level: number): { chanceBoost: number; cargoBoost: number } {
   if (level <= 0) return { chanceBoost: 0, cargoBoost: 0 }
   return { chanceBoost: level * 0.15, cargoBoost: level }
@@ -465,6 +559,373 @@ function createPolice(): Enemy {
 
 /* ------------------------------ event creation ----------------------------- */
 
+// All possible non-combat leg events (weight, generator)
+function legEventTemplates(
+  state: GameState,
+  region: StarSystem,
+): Array<{ weight: number; generate: () => GameEvent | null }> {
+  const carryingContraband = GOODS.some((g) => g.illegal && (state.cargo[g.id] ?? 0) > 0)
+  const factionId = region.factionId
+  const tradable = GOODS.filter((g) => !g.illegal)
+
+  return [
+    // --- Faction events ---
+    {
+      weight: 5,
+      generate() {
+        if (factionId !== "federation") return null
+        return {
+          kind: "fed_patrol",
+          title: "Federation Patrol",
+          text: "A Federation patrol wing requests a cargo manifest check. They're polite but armed.",
+          options: [
+            { id: "comply", label: "Transmit manifest" },
+            { id: "refuse", label: "Refuse and alter course" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 4,
+      generate() {
+        if (factionId !== "imperial") return null
+        return {
+          kind: "imp_warship",
+          title: "Imperial Warship",
+          text: "An Imperial warship demands you yield for inspection. Their guns are already tracking.",
+          options: [
+            { id: "yield", label: "Yield and comply" },
+            { id: "resist", label: "Resist and engage drives" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 5,
+      generate() {
+        if (factionId !== "combine") return null
+        const reward = randInt(200, 500)
+        return {
+          kind: "combine_escort",
+          title: "Combine Convoy Escort",
+          text: `A Combine freighter convoy offers ${reward} cr for a temporary escort through this sector.`,
+          options: [
+            { id: "accept", label: `Accept escort contract (${reward} cr)` },
+            { id: "decline", label: "Decline" },
+          ],
+          unitPrice: reward,
+        }
+      },
+    },
+    {
+      weight: 5,
+      generate() {
+        if (factionId !== "cartel") return null
+        const toll = randInt(150, 400)
+        return {
+          kind: "cartel_toll",
+          title: "Cartel Passage Toll",
+          text: `A Cartel raider demands ${toll} cr as a "passage toll" to continue through this space.`,
+          options: [
+            { id: "pay", label: `Pay ${toll} cr` },
+            { id: "fight", label: "Refuse — they'll have to earn it" },
+          ],
+          unitPrice: toll,
+        }
+      },
+    },
+    {
+      weight: 3,
+      generate() {
+        const rivals: Record<FactionId, string> = { federation: "Cartel", combine: "Imperial", imperial: "Combine", cartel: "Federation" }
+        const rivalName = rivals[factionId]
+        return {
+          kind: "bounty_hunter",
+          title: "Bounty Hunter Intercept",
+          text: `A ${rivalName}-backed bounty hunter locks onto your jump signature. "You've made enemies, commander."`,
+          options: [
+            { id: "bribe", label: "Offer 200 cr to look the other way" },
+            { id: "fight", label: "Battle stations!" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 4,
+      generate() {
+        if (!carryingContraband && chance(0.5)) return null
+        const good = GOODS.find((g) => g.illegal && (state.cargo[g.id] ?? 0) > 0) || GOODS.filter((g) => g.illegal)[randInt(0, GOODS.filter((g) => g.illegal).length - 1)]
+        const qty = randInt(2, 4)
+        return {
+          kind: "smuggler_hide",
+          title: "Smuggler's Plea",
+          text: `A smuggler fleeing a Federation scan begs you to hold ${qty}t of ${good.name}. "I'll split the profit when we reach port!"`,
+          options: [
+            { id: "help", label: `Take ${qty}t of ${good.name}` },
+            { id: "decline", label: "Not my problem" },
+          ],
+          goodId: good.id,
+          qty,
+        }
+      },
+    },
+    {
+      weight: 3,
+      generate() {
+        if (factionId !== "imperial") return null
+        const bribe = randInt(100, 300)
+        return {
+          kind: "imp_checkpoint",
+          title: "Imperial Checkpoint",
+          text: `An Imperial checkpoint blocks the spacelane. The officer demands ${bribe} cr to expedite clearance.`,
+          options: [
+            { id: "bribe", label: `Pay ${bribe} cr bribe` },
+            { id: "divert", label: "Take the long way around" },
+          ],
+          unitPrice: bribe,
+        }
+      },
+    },
+    {
+      weight: 3,
+      generate() {
+        if (factionId !== "combine") return null
+        return {
+          kind: "combine_distress",
+          title: "Combine Distress Call",
+          text: "A Combine transport screams for help — but the signal pattern looks suspiciously like a Cartel trap.",
+          options: [
+            { id: "investigate", label: "Investigate (could be legitimate)" },
+            { id: "ignore", label: "Ignore — too risky" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 4,
+      generate() {
+        if (factionId !== "cartel") return null
+        const good = GOODS.filter((g) => g.illegal)[randInt(0, GOODS.filter((g) => g.illegal).length - 1)]
+        const unitPrice = Math.round(good.basePrice * rand(0.3, 0.5))
+        const qty = randInt(2, 5)
+        return {
+          kind: "cartel_informant",
+          title: "Cartel Informant",
+          text: `A Cartel informant offers ${qty}t of ${good.name} at ${unitPrice} cr each — well below black market rates.`,
+          options: [
+            { id: "buy", label: `Buy ${qty}t for ${unitPrice * qty} cr` },
+            { id: "decline", label: "Decline" },
+          ],
+          goodId: good.id,
+          unitPrice,
+          qty,
+        }
+      },
+    },
+    {
+      weight: 4,
+      generate() {
+        if (factionId !== "federation") return null
+        return {
+          kind: "fed_rescue",
+          title: "Federation Rescue Op",
+          text: "A Federation rescue operation is underway — a medical frigate was hit by pirates. They could use cover, or... the cargo pods are drifting unguarded.",
+          options: [
+            { id: "assist", label: "Assist the rescue (honour)" },
+            { id: "loot", label: "Loot the cargo pods (profit)" },
+          ],
+        }
+      },
+    },
+    // --- Independent events ---
+    {
+      weight: 6,
+      generate() {
+        return {
+          kind: "derelict",
+          title: "Derelict Ship Adrift",
+          text: "Your scanner pings a powered-down hulk drifting in the dark. It might hold salvage — or a nasty surprise.",
+          options: [
+            { id: "salvage", label: "Board and salvage" },
+            { id: "ignore", label: "Leave it alone" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 6,
+      generate() {
+        return {
+          kind: "asteroid",
+          title: "Asteroid Field",
+          text: "Your route passes through a dense asteroid field rich with ore — and hull-cracking rocks.",
+          options: [
+            { id: "mine", label: "Mine the asteroids" },
+            { id: "avoid", label: "Plot a safe course around" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 3,
+      generate() {
+        return {
+          kind: "solar_flare",
+          title: "Solar Flare",
+          text: "A sudden solar flare washes over your ship, scrambling your shield generators.",
+          options: [
+            { id: "brace", label: "Brace and reroute power" },
+            { id: "drift", label: "Drift through — conserve systems" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 2,
+      generate() {
+        const dest = SYSTEMS.filter((s) => s.id !== state.currentSystemId && s.id !== region.id)
+        const target = dest[randInt(0, dest.length - 1)]
+        return {
+          kind: "wormhole",
+          title: "Unstable Wormhole",
+          text: `A swirling wormhole crackles open ahead. Scanners show it leads somewhere near ${target.name}. It could collapse any second.`,
+          options: [
+            { id: "enter", label: `Enter — jump to ${target.name}` },
+            { id: "avoid", label: "Back away slowly" },
+          ],
+          goodId: target.id,
+        }
+      },
+    },
+    {
+      weight: 5,
+      generate() {
+        return {
+          kind: "distress",
+          title: "Distress Beacon",
+          text: "A faint distress call crackles over the comm. A stranded trader begs for assistance nearby.",
+          options: [
+            { id: "help", label: "Investigate the signal" },
+            { id: "ignore", label: "Ignore and proceed" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 4,
+      generate() {
+        return {
+          kind: "pirate_ambush",
+          title: "Pirate Ambush",
+          text: "Pirates burst from an asteroid blind spot! They had the perfect hiding place.",
+          options: [
+            { id: "fight", label: "Evasive combat!" },
+            { id: "flee", label: "Full power to engines — flee!" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 2,
+      generate() {
+        return {
+          kind: "alien_artifact",
+          title: "Mysterious Alien Artifact",
+          text: "A strange crystalline object drifts in space, pulsing with an eerie blue light. It's unlike any known technology.",
+          options: [
+            { id: "grab", label: "Tractor it aboard" },
+            { id: "leave", label: "Leave it drifting" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 4,
+      generate() {
+        return {
+          kind: "fuel_leak",
+          title: "Fuel Leak Detected",
+          text: "Your engineer reports a micro-fracture in the fuel line. You're venting plasma — lose extra fuel this leg.",
+          options: [
+            { id: "patch", label: "Attempt a patch (may fail)" },
+            { id: "burn", label: "Burn hard and minimize the loss" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 3,
+      generate() {
+        const nearest = SYSTEMS.filter((s) => s.id !== state.currentSystemId && s.id !== region.id)
+        const alt = nearest[randInt(0, nearest.length - 1)]
+        return {
+          kind: "nav_glitch",
+          title: "Navigation Computer Glitch",
+          text: `Your nav computer glitches — the plotted route is corrupted. Nearest safe system is ${alt.name}.`,
+          options: [
+            { id: "reroute", label: `Reroute to ${alt.name}` },
+            { id: "manual", label: "Manual navigation (risk getting lost)" },
+          ],
+          goodId: alt.id,
+        }
+      },
+    },
+    {
+      weight: 5,
+      generate() {
+        const good = tradable[randInt(0, tradable.length - 1)]
+        const theirGood = tradable[randInt(0, tradable.length - 1)]
+        const qty = randInt(2, 6)
+        return {
+          kind: "convoy_swap",
+          title: "Trade Convoy Offer",
+          text: `A passing convoy offers to swap — they'll trade ${qty}t of ${theirGood.name} for ${qty}t of ${good.name}.`,
+          options: [
+            { id: "accept", label: `Swap for ${theirGood.name}` },
+            { id: "decline", label: "Decline" },
+          ],
+          goodId: theirGood.id,
+          qty,
+        }
+      },
+    },
+    {
+      weight: 4,
+      generate() {
+        return {
+          kind: "mining_field",
+          title: "Uncharted Mining Field",
+          text: "Scanners detect a rich, uncharted asteroid field dense with rare ore. Spend 1 extra turn mining?",
+          options: [
+            { id: "mine", label: "Stop and mine (1 extra turn)" },
+            { id: "skip", label: "Skip — stay on schedule" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 5,
+      generate() {
+        const good = tradable[randInt(0, tradable.length - 1)]
+        const unitPrice = Math.round(good.basePrice * rand(0.5, 0.75))
+        const qty = randInt(3, 8)
+        return {
+          kind: "trader",
+          title: "Free Trader Rendezvous",
+          text: `A friendly free trader offers ${qty}t of ${good.name} at ${unitPrice} cr each — well below market.`,
+          options: [
+            { id: "buy", label: `Buy ${qty}t for ${unitPrice * qty} cr` },
+            { id: "decline", label: "Decline the offer" },
+          ],
+          goodId: good.id,
+          unitPrice,
+          qty,
+        }
+      },
+    },
+  ]
+}
+
 // Roll the encounter for a single leg. `silent` greatly reduces hostile contact.
 function pickLegEvent(
   state: GameState,
@@ -480,8 +941,11 @@ function pickLegEvent(
 
   if (r < pirateChance) return "combat"
 
-  // Police interdiction — more likely if you're dirty.
-  const policeChance = (carryingContraband ? 0.28 : 0.08) * dangerMult
+  // Police interdiction — more likely if you're dirty or have low rep
+  const rep = state.factionRep[region.factionId] ?? 0
+  const policeBase = carryingContraband ? 0.28 : 0.08
+  const policeRepMult = rep >= 8 ? 0.2 : rep >= 5 ? 0.5 : rep <= -8 ? 2.5 : rep <= -4 ? 1.8 : 1
+  const policeChance = policeBase * dangerMult * policeRepMult
   if (r < pirateChance + policeChance) {
     return {
       kind: "police",
@@ -496,58 +960,24 @@ function pickLegEvent(
     }
   }
 
-  // Non-combat encounters
+  // Non-combat encounters — pick from weighted templates
   const r2 = Math.random()
-  if (r2 < 0.25) {
-    return {
-      kind: "derelict",
-      title: "Derelict Hulk",
-      text: "Your scanner pings a powered-down hulk drifting in the dark. It might hold salvage — or a nasty surprise.",
-      options: [
-        { id: "salvage", label: "Board and salvage" },
-        { id: "ignore", label: "Leave it alone" },
-      ],
+  if (r2 < 0.55) {
+    // Generate all valid events
+    const allTemplates = legEventTemplates(state, region)
+    const generated: { weight: number; event: GameEvent }[] = []
+    for (const tpl of allTemplates) {
+      const ev = tpl.generate()
+      if (ev) generated.push({ weight: tpl.weight, event: ev })
     }
-  }
-  if (r2 < 0.5) {
-    return {
-      kind: "distress",
-      title: "Distress Beacon",
-      text: "A faint distress call crackles over the comm. A stranded pilot begs for assistance nearby.",
-      options: [
-        { id: "help", label: "Investigate the signal" },
-        { id: "ignore", label: "Ignore and proceed" },
-      ],
-    }
-  }
-  if (r2 < 0.72) {
-    return {
-      kind: "asteroid",
-      title: "Asteroid Field",
-      text: "Your route passes through a dense asteroid field rich with ore — and hull-cracking rocks.",
-      options: [
-        { id: "mine", label: "Mine the asteroids" },
-        { id: "avoid", label: "Plot a safe course" },
-      ],
-    }
-  }
-  if (r2 < 0.95) {
-    // Free trader offering a deal
-    const tradable = GOODS.filter((g) => !g.illegal)
-    const good = tradable[randInt(0, tradable.length - 1)]
-    const unitPrice = Math.round(good.basePrice * rand(0.5, 0.75))
-    const qty = randInt(3, 8)
-    return {
-      kind: "trader",
-      title: "Free Trader Rendezvous",
-      text: `A friendly free trader offers ${qty}t of ${good.name} at ${unitPrice} cr each — well below market.`,
-      options: [
-        { id: "buy", label: `Buy ${qty}t for ${unitPrice * qty} cr` },
-        { id: "decline", label: "Decline the offer" },
-      ],
-      goodId: good.id,
-      unitPrice,
-      qty,
+    if (generated.length > 0) {
+      const totalWeight = generated.reduce((s, g) => s + g.weight, 0)
+      let roll = rand(0, totalWeight)
+      for (const g of generated) {
+        roll -= g.weight
+        if (roll <= 0) return g.event
+      }
+      return generated[0].event
     }
   }
 
@@ -575,6 +1005,7 @@ function checkMissionCompletions(state: GameState): GameState {
     ) {
       const held = s.cargo[mission.requiredGoodId] ?? 0
       if (held >= mission.requiredQty) {
+        const destFaction = mission.factionId ?? SYSTEMS_BY_ID[mission.targetSystemId]?.factionId ?? "federation"
         s = {
           ...s,
           cargo: { ...s.cargo, [mission.requiredGoodId!]: held - mission.requiredQty },
@@ -582,6 +1013,7 @@ function checkMissionCompletions(state: GameState): GameState {
           missions: s.missions.map((m) =>
             m.id === mission.id ? { ...m, completed: true } : m,
           ),
+          factionRep: { ...s.factionRep, [destFaction]: Math.min(10, (s.factionRep[destFaction] ?? 0) + 1) },
         }
         if (s.cargo[mission.requiredGoodId!] <= 0) {
           const c = { ...s.cargo }
@@ -598,12 +1030,14 @@ function checkMissionCompletions(state: GameState): GameState {
       mission.type === "rescue" ||
       mission.type === "passenger"
     ) {
+      const destFaction = mission.factionId ?? SYSTEMS_BY_ID[mission.targetSystemId]?.factionId ?? "federation"
       s = {
         ...s,
         credits: s.credits + mission.reward,
         missions: s.missions.map((m) =>
           m.id === mission.id ? { ...m, completed: true } : m,
         ),
+        factionRep: { ...s.factionRep, [destFaction]: Math.min(10, (s.factionRep[destFaction] ?? 0) + 1) },
       }
       s = log(s, `Mission complete: ${mission.title}. Earned ${mission.reward} cr.`, "good")
     }
@@ -632,27 +1066,57 @@ function checkMissionDeadlines(state: GameState): GameState {
 // End the current leg/turn and return to the command phase.
 function settleLeg(state: GameState): GameState {
   let s = checkMissionDeadlines(state)
+  // Engineer hull repair (after possible deadline damage)
+  const hullRepair = crewHullRepair(s.crew)
+  if (hullRepair > 0 && s.ship.hull < s.ship.maxHull && s.ship.hull > 0) {
+    const newHull = Math.min(s.ship.maxHull, s.ship.hull + hullRepair)
+    s = { ...s, ship: { ...s.ship, hull: newHull } }
+  }
+  // Pay crew wages every turn
+  if (s.crew.length > 0) {
+    s = payCrewWages(s)
+  }
   const v = s.voyage
   const arrived = v !== null && v.legsDone >= v.legsTotal
   if (arrived) {
     const dest = SYSTEMS_BY_ID[v!.destinationId]
-    s = {
-      ...s,
-      phase: "command",
-      currentSystemId: dest.id,
-      voyage: null,
-      snapshot: null,
-      report: null,
-      enemy: null,
-      event: null,
-      playerEvading: false,
-      market: generateMarket(dest),
+    // Check hostile docking
+    const destRep = s.factionRep[dest.factionId] ?? 0
+    if (destRep <= -8 && dest.danger < 3) {
+      // Denied docking at high-security stations
+      const escape = nearestSystem(dest.id)
+      s = log(s, `${dest.name} Control denies docking clearance. Hostile standing. Diverting to ${escape.name}.`, "bad")
+      s = {
+        ...s,
+        phase: "command",
+        currentSystemId: escape.id,
+        voyage: null,
+        snapshot: null,
+        report: null,
+        enemy: null,
+        event: null,
+        playerEvading: false,
+        market: generateMarket(escape, s.factionRep[escape.factionId]),
+      }
+    } else {
+      s = {
+        ...s,
+        phase: "command",
+        currentSystemId: dest.id,
+        voyage: null,
+        snapshot: null,
+        report: null,
+        enemy: null,
+        event: null,
+        playerEvading: false,
+        market: generateMarket(dest, s.factionRep[dest.factionId]),
+      }
+      s = log(
+        s,
+        `Docked at ${dest.name} Station. (${dest.economy}, Tech ${dest.techLevel})`,
+        "system",
+      )
     }
-    s = log(
-      s,
-      `Docked at ${dest.name} Station. (${dest.economy}, Tech ${dest.techLevel})`,
-      "system",
-    )
     s = checkMissionCompletions(s)
     return s
   }
@@ -739,6 +1203,8 @@ export type Action =
   | { type: "REPAIR" }
   | { type: "ACCEPT_MISSION"; mission: import("./types").Mission }
   | { type: "ABANDON_MISSION"; missionId: number }
+  | { type: "HIRE_CREW"; role: CrewRole }
+  | { type: "FIRE_CREW"; crewId: number }
 
 /* --------------------------------- combat ---------------------------------- */
 
@@ -774,12 +1240,13 @@ function enemyTurn(state: GameState, enemy: Enemy): GameState {
       ...s,
       ship: {
         ...s.ship,
-        shield: clamp(s.ship.shield + 4, 0, s.ship.maxShield),
+        shield: clamp(s.ship.shield + 4 + crewShieldRegen(s.crew), 0, s.ship.maxShield),
       },
     }
   }
 
-  if (s.playerEvading && chance(0.55)) {
+  const evadeChance = 0.55 + crewEvadeBonus(s.crew)
+  if (s.playerEvading && chance(evadeChance)) {
     s = log(s, `You juke hard — the ${enemy.name}'s shots go wide.`, "combat")
     s = { ...s, playerEvading: false }
     return s
@@ -829,6 +1296,24 @@ function handleEnemyDestroyed(state: GameState): GameState {
   }
 
   s = log(s, "Threat eliminated.", "good")
+
+  // Faction reputation changes
+  const region = SYSTEMS_BY_ID[s.voyage?.destinationId ?? s.currentSystemId]
+  if (enemy.bounty > 0) {
+    // Pirate kill: +rep with current region's faction
+    const factionId = region.factionId
+    s = { ...s, factionRep: { ...s.factionRep, [factionId]: Math.min(10, (s.factionRep[factionId] ?? 0) + 2) } }
+    // +1 with Imperial and Combine too
+    s = { ...s, factionRep: { ...s.factionRep, imperial: Math.min(10, (s.factionRep.imperial ?? 0) + 1), combine: Math.min(10, (s.factionRep.combine ?? 0) + 1) } }
+    if (factionId !== "cartel") {
+      s = { ...s, factionRep: { ...s.factionRep, cartel: Math.max(-10, (s.factionRep.cartel ?? 0) - 1) } }
+    }
+  } else {
+    // Police kill: -rep with current region's faction, +rep with cartel
+    const factionId = region.factionId
+    s = { ...s, factionRep: { ...s.factionRep, [factionId]: Math.max(-10, (s.factionRep[factionId] ?? 0) - 3), cartel: Math.min(10, (s.factionRep.cartel ?? 0) + 1) } }
+    s = log(s, `${factionId === "cartel" ? "Cartel" : "Authorities"} won't forget this.`, "bad")
+  }
 
   // Check bounty missions
   const destId = s.voyage?.destinationId ?? s.currentSystemId
@@ -1042,7 +1527,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         return log(state, "Not enough credits for a layover (150 cr).", "bad")
       const system = SYSTEMS_BY_ID[state.currentSystemId]
       let s = state
-      s = { ...s, turn: s.turn + 1, credits: s.credits - 150, market: generateMarket(system) }
+      s = { ...s, turn: s.turn + 1, credits: s.credits - 150, market: generateMarket(system, s.factionRep[system.factionId]) }
       s = log(s, `Turn ${s.turn}: layover at ${system.name} — markets shift. (150 cr)`, "info")
       return settleLeg(s)
     }
@@ -1053,6 +1538,11 @@ export function gameReducer(state: GameState, action: Action): GameState {
       const region =
         SYSTEMS_BY_ID[state.voyage?.destinationId ?? state.currentSystemId]
       let s: GameState = { ...state, event: null }
+      const factionId = region.factionId
+
+      const adjustRep = (delta: number, fid?: FactionId) => {
+        s = changeRep(s, fid ?? factionId, delta)
+      }
 
       if (ev.kind === "police") {
         if (action.optionId === "submit") {
@@ -1067,12 +1557,15 @@ export function gameReducer(state: GameState, action: Action): GameState {
           if (fine > 0) {
             const paid = Math.min(fine, s.credits)
             s = { ...s, cargo, credits: s.credits - paid }
-            s = log(s, `Contraband confiscated and fined ${paid} cr. Cleared to proceed.`, "bad")
+            adjustRep(-1)
+            s = log(s, `Contraband confiscated and fined ${paid} cr. Faction standing decreased.`, "bad")
           } else {
             s = log(s, "Scan complete. Manifest clean — cleared to proceed.", "good")
           }
           return settleLeg(s)
         }
+        adjustRep(-3)
+        s = { ...s, factionRep: { ...s.factionRep, cartel: Math.min(10, (s.factionRep.cartel ?? 0) + 1) } }
         const enemy = createPolice()
         s = { ...s, phase: "combat", enemy, playerEvading: false }
         s = log(s, "You gun the throttle! Police Viper gives chase and opens fire!", "combat")
@@ -1122,6 +1615,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         }
         const reward = randInt(200, 700)
         s = { ...s, credits: s.credits + reward }
+        adjustRep(1)
         s = log(s, `You rescue the stranded pilot. Grateful, they reward you ${reward} cr.`, "good")
         return settleLeg(s)
       }
@@ -1167,11 +1661,301 @@ export function gameReducer(state: GameState, action: Action): GameState {
         } else if (cost > s.credits) {
           s = log(s, "You can't afford the trader's offer.", "bad")
         } else {
-          s = {
-            ...s,
-            credits: s.credits - cost,
-            cargo: { ...s.cargo, [ev.goodId!]: (s.cargo[ev.goodId!] ?? 0) + qty },
+          s = { ...s, credits: s.credits - cost, cargo: { ...s.cargo, [ev.goodId!]: (s.cargo[ev.goodId!] ?? 0) + qty } }
+        }
+        return settleLeg(s)
+      }
+
+      // ---- Faction events ----
+      if (ev.kind === "fed_patrol") {
+        if (action.optionId === "comply") {
+          adjustRep(1, "federation")
+          s = log(s, "Manifest transmitted. Federation patrol clears you to proceed.", "good")
+        } else {
+          adjustRep(-2, "federation")
+          s = log(s, "You alter course. The patrol marks your vessel as 'uncooperative'.", "bad")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "imp_warship") {
+        if (action.optionId === "yield") {
+          adjustRep(1, "imperial")
+          s = log(s, "You comply with the inspection. The Imperial warship stands down.", "good")
+        } else {
+          adjustRep(-2, "imperial")
+          const enemy = createPolice()
+          s = { ...s, phase: "combat", enemy, playerEvading: false }
+          s = log(s, "You resist! The Imperial warship opens fire!", "combat")
+          return s
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "combine_escort") {
+        if (action.optionId === "accept") {
+          const reward = ev.unitPrice ?? 250
+          s = { ...s, credits: s.credits + reward }
+          adjustRep(1, "combine")
+          s = log(s, `Escort complete. Earned ${reward} cr.`, "good")
+        } else {
+          s = log(s, "You decline and continue alone.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "cartel_toll") {
+        if (action.optionId === "pay") {
+          const toll = ev.unitPrice ?? 200
+          const paid = Math.min(toll, s.credits)
+          s = { ...s, credits: s.credits - paid }
+          adjustRep(1, "cartel")
+          s = log(s, `You pay ${paid} cr. The Cartel raider grins and lets you pass.`, "info")
+        } else {
+          adjustRep(-2, "cartel")
+          const enemy = createPirate(region.danger + 1)
+          s = { ...s, phase: "combat", enemy, playerEvading: false }
+          s = log(s, "\"Wrong answer.\" The Cartel raider opens fire!", "combat")
+          return s
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "bounty_hunter") {
+        if (action.optionId === "bribe") {
+          const paid = Math.min(200, s.credits)
+          s = { ...s, credits: s.credits - paid }
+          s = log(s, `You slip the bounty hunter ${paid} cr. "Didn't see a thing."`, "info")
+        } else {
+          const enemy: Enemy = { name: "Rival Bounty Hunter", hull: 65, maxHull: 65, shield: 30, maxShield: 30, damage: 14, bounty: 500 }
+          s = { ...s, phase: "combat", enemy, playerEvading: false }
+          s = log(s, "The bounty hunter's weapons power up. Battle stations!", "combat")
+          return s
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "smuggler_hide") {
+        if (action.optionId === "help") {
+          const free = s.ship.cargoCapacity - cargoUsed(s.cargo)
+          const qty = Math.min(ev.qty ?? 2, free)
+          if (qty > 0) {
+            s = { ...s, cargo: { ...s.cargo, [ev.goodId!]: (s.cargo[ev.goodId!] ?? 0) + qty } }
+            adjustRep(1, "cartel")
+            adjustRep(-1, "federation")
+            s = log(s, `You take ${qty}t of ${GOODS_BY_ID[ev.goodId!]?.name ?? "contraband"}.`, "info")
+          } else {
+            s = log(s, "Your hold is full — can't help the smuggler.", "bad")
           }
+        } else {
+          s = log(s, "Not your problem. You press on.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "imp_checkpoint") {
+        if (action.optionId === "bribe") {
+          const bribe = ev.unitPrice ?? 200
+          const paid = Math.min(bribe, s.credits)
+          s = { ...s, credits: s.credits - paid }
+          adjustRep(-1, "imperial")
+          s = log(s, `You pay ${paid} cr. The officer waves you through.`, "info")
+        } else {
+          s = { ...s, turn: s.turn + 1 }
+          s = log(s, "You take the long way around — losing a turn but staying clean.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "combine_distress") {
+        if (action.optionId === "investigate") {
+          if (chance(0.5)) {
+            const reward = randInt(300, 600)
+            s = { ...s, credits: s.credits + reward }
+            adjustRep(1, "combine")
+            s = log(s, `It was a real emergency — you save the crew and earn ${reward} cr.`, "good")
+          } else {
+            const enemy = createPirate(region.danger + 1)
+            s = { ...s, phase: "combat", enemy, playerEvading: false }
+            s = log(s, "Cartel trap confirmed! Pirates spring from behind the wreck!", "combat")
+            return s
+          }
+        } else {
+          s = log(s, "You play it safe and press on.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "cartel_informant") {
+        if (action.optionId === "buy") {
+          const free = s.ship.cargoCapacity - cargoUsed(s.cargo)
+          const qty = Math.min(ev.qty ?? 2, free)
+          const cost = qty * (ev.unitPrice ?? 0)
+          if (qty <= 0) {
+            s = log(s, "Your hold is full.", "bad")
+          } else if (cost > s.credits) {
+            s = log(s, "Not enough credits.", "bad")
+          } else {
+            s = { ...s, credits: s.credits - cost, cargo: { ...s.cargo, [ev.goodId!]: (s.cargo[ev.goodId!] ?? 0) + qty } }
+            adjustRep(1, "cartel")
+            s = log(s, `Bought ${qty}t of ${GOODS_BY_ID[ev.goodId!]?.name ?? "goods"} on the black market.`, "good")
+          }
+        } else {
+          s = log(s, "You decline the informant's offer.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "fed_rescue") {
+        if (action.optionId === "assist") {
+          adjustRep(2, "federation")
+          s = log(s, "You cover the rescue op. The Federation thanks you for your honour.", "good")
+        } else {
+          const bonus = scannerBonus(s.scannerLevel)
+          const good = GOODS[randInt(0, GOODS.length - 1)]
+          const amount = randInt(2 + bonus.cargoBoost, 6 + bonus.cargoBoost)
+          s = { ...s, cargo: { ...s.cargo, [good.id]: (s.cargo[good.id] ?? 0) + amount } }
+          adjustRep(-3, "federation")
+          adjustRep(1, "cartel")
+          s = log(s, `You loot ${amount}t of ${good.name} from the drifting cargo. Your conscience twinges.`, "bad")
+        }
+        return settleLeg(s)
+      }
+
+      // ---- Independent events ----
+      if (ev.kind === "solar_flare") {
+        if (action.optionId === "brace") {
+          const shieldLoss = randInt(5, 15)
+          s = { ...s, ship: { ...s.ship, shield: Math.max(0, s.ship.shield - shieldLoss) } }
+          s = log(s, `Shields absorb the flare — ${shieldLoss} shield lost.`, "bad")
+        } else {
+          s = { ...s, ship: { ...s.ship, shield: 0 } }
+          s = log(s, "Shields are completely scrambled! You drift through with no protection.", "bad")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "wormhole") {
+        if (action.optionId === "enter") {
+          const targetId = ev.goodId ?? SYSTEMS.filter((sy) => sy.id !== region.id)[0].id
+          const dest = SYSTEMS_BY_ID[targetId] ?? region
+          s = { ...s, voyage: { destinationId: dest.id, legsTotal: 1, legsDone: 1 } }
+          s = log(s, `You plunge into the wormhole — emerging near ${dest.name}!`, "system")
+          return settleLeg(s)
+        } else {
+          s = log(s, "You back away. The wormhole collapses with a flash.", "info")
+          return settleLeg(s)
+        }
+      }
+
+      if (ev.kind === "pirate_ambush") {
+        if (action.optionId === "fight") {
+          const enemy = createPirate(region.danger + 1)
+          s = { ...s, phase: "combat", enemy, playerEvading: false }
+          s = log(s, "You swing into evasive combat — the pirate is on you!", "combat")
+          return s
+        } else {
+          if (chance(0.55 + crewEvadeBonus(s.crew))) {
+            s = log(s, "Full power to engines — you outrun the ambush!", "good")
+          } else {
+            const enemy = createPirate(region.danger)
+            s = { ...s, phase: "combat", enemy, playerEvading: false }
+            s = log(s, "They're faster! The pirate cuts you off!", "combat")
+            return s
+          }
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "alien_artifact") {
+        if (action.optionId === "grab") {
+          if (chance(0.6)) {
+            const credits = randInt(800, 2000)
+            s = { ...s, credits: s.credits + credits }
+            s = log(s, `The artifact is priceless! You sell the data for ${credits} cr.`, "good")
+          } else {
+            const dmg = randInt(15, 35)
+            s = applyDamageToShip(s, dmg)
+            s = log(s, `The artifact pulses with energy — ${dmg} damage to your ship!`, "bad")
+            if (s.ship.hull <= 0) {
+              s = { ...s, ship: { ...s.ship, hull: 0 }, phase: "gameover" }
+              s = log(s, "The alien artifact overloads your reactor...", "bad")
+              return s
+            }
+          }
+        } else {
+          s = log(s, "You leave the artifact drifting. Some mysteries are best left alone.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "fuel_leak") {
+        if (action.optionId === "patch") {
+          if (chance(0.5)) {
+            s = log(s, "Patch holds! Fuel loss minimized.", "good")
+          } else {
+            s = { ...s, ship: { ...s.ship, fuel: Math.max(0, s.ship.fuel - 1) } }
+            s = log(s, "Patch fails — you lose extra fuel.", "bad")
+          }
+        } else {
+          s = { ...s, ship: { ...s.ship, fuel: Math.max(0, s.ship.fuel - 1) } }
+          s = log(s, "You burn hard to minimize the leak. Lose 1 extra ly of fuel.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "nav_glitch") {
+        if (action.optionId === "reroute") {
+          const altId = ev.goodId ?? SYSTEMS.filter((sy) => sy.id !== region.id)[0].id
+          const alt = SYSTEMS_BY_ID[altId] ?? region
+          s = { ...s, voyage: { destinationId: alt.id, legsTotal: 1, legsDone: 1 } }
+          s = log(s, `Nav computer reroutes to ${alt.name}.`, "info")
+          return settleLeg(s)
+        } else {
+          if (chance(0.6)) {
+            s = log(s, "You manually plot a course — smooth sailing.", "good")
+          } else {
+            s = { ...s, turn: s.turn + 1 }
+            s = log(s, "You get slightly lost. Lose a turn reorienting.", "bad")
+          }
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "convoy_swap") {
+        if (action.optionId === "accept") {
+          const theirGood = ev.goodId!
+          const qty = ev.qty ?? 3
+          const held = Object.entries(s.cargo).find(([, v]) => v >= qty)
+          if (held) {
+            const newCargo = { ...s.cargo }
+            newCargo[held[0]] -= qty
+            if (newCargo[held[0]] <= 0) delete newCargo[held[0]]
+            newCargo[theirGood] = (newCargo[theirGood] ?? 0) + qty
+            s = { ...s, cargo: newCargo }
+            s = log(s, `Swapped ${qty}t of ${GOODS_BY_ID[held[0]]?.name ?? "goods"} for ${GOODS_BY_ID[theirGood]?.name ?? "goods"}.`, "good")
+          } else {
+            s = log(s, "You don't have enough of any single good to swap.", "bad")
+          }
+        } else {
+          s = log(s, "You decline the swap.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "mining_field") {
+        if (action.optionId === "mine") {
+          const free = s.ship.cargoCapacity - cargoUsed(s.cargo)
+          const amount = Math.min(free, randInt(3, 8))
+          if (amount > 0) {
+            s = { ...s, cargo: { ...s.cargo, minerals: (s.cargo.minerals ?? 0) + amount } }
+            s = { ...s, turn: s.turn + 1 }
+            s = log(s, `Mined ${amount}t of rare Minerals from the uncharted field. (+1 turn)`, "good")
+          } else {
+            s = log(s, "Rich ore here, but your hold is full.", "info")
+          }
+        } else {
+          s = log(s, "You mark the location and stay on schedule.", "info")
         }
         return settleLeg(s)
       }
@@ -1197,14 +1981,49 @@ export function gameReducer(state: GameState, action: Action): GameState {
       const mission = state.missions.find((m) => m.id === action.missionId)
       if (!mission || mission.completed || mission.failed) return state
       const penalty = Math.floor(mission.reward * 0.25)
+      const targetFaction = mission.factionId ?? SYSTEMS_BY_ID[mission.targetSystemId]?.factionId ?? "federation"
       let s: GameState = {
         ...state,
         credits: Math.max(0, state.credits - penalty),
         missions: state.missions.map((m) =>
           m.id === action.missionId ? { ...m, failed: true } : m,
         ),
+        factionRep: {
+          ...state.factionRep,
+          [targetFaction]: Math.max(-10, (state.factionRep[targetFaction] ?? 0) - 2),
+        },
       }
-      s = log(s, `Abandoned mission: ${mission.title}. Reputation penalty: ${penalty} cr.`, "bad")
+      s = log(s, `Abandoned mission: ${mission.title}. Lost rep with ${FACTIONS_BY_ID[targetFaction].name}.`, "bad")
+      return s
+    }
+
+    case "HIRE_CREW": {
+      if (!isDocked(state)) return state
+      const system = SYSTEMS_BY_ID[state.currentSystemId]
+      if (system.techLevel < 3) return log(state, "No crew for hire at this backwater station.", "bad")
+      if (state.crew.length >= 4) return log(state, "No bunks available — crew quarters full.", "bad")
+      if (state.crew.some((c) => c.role === action.role)) return log(state, `You already have a ${action.role} aboard.`, "bad")
+      const wage = CREW_WAGE[action.role]
+      const name = CREW_NAMES[randInt(0, CREW_NAMES.length - 1)]
+      const member: CrewMember = { id: state.nextCrewId, name, role: action.role, wagePerTurn: wage }
+      let s: GameState = {
+        ...state,
+        crew: [...state.crew, member],
+        nextCrewId: state.nextCrewId + 1,
+        credits: state.credits - wage * 2, // signing bonus
+      }
+      s = log(s, `Hired ${name} as ${action.role} (${wage} cr/turn). ${CREW_ROLE_BONUS[action.role].description}`, "good")
+      return s
+    }
+
+    case "FIRE_CREW": {
+      const member = state.crew.find((c) => c.id === action.crewId)
+      if (!member) return state
+      let s: GameState = {
+        ...state,
+        crew: state.crew.filter((c) => c.id !== action.crewId),
+      }
+      s = log(s, `${member.name} (${member.role}) has left the ship.`, "info")
       return s
     }
 
@@ -1214,7 +2033,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
       let s: GameState = state
 
       if (action.action === "fire") {
-        const dmg = Math.round(s.ship.weaponDamage * rand(0.8, 1.2))
+        const dmg = Math.round(s.ship.weaponDamage * crewDamageMult(s.crew) * rand(0.8, 1.2))
         s = { ...s, enemy: damageEnemy(currentEnemy, dmg) }
         s = log(s, `You fire lasers for ${dmg} damage.`, "combat")
         if (s.enemy!.hull <= 0) return handleEnemyDestroyed(s)
@@ -1233,14 +2052,15 @@ export function gameReducer(state: GameState, action: Action): GameState {
 
       if (action.action === "evade") {
         s = { ...s, playerEvading: true }
-        const regen = Math.min(10, s.ship.maxShield - s.ship.shield)
+        const baseRegen = 10 + crewShieldRegen(s.crew)
+        const regen = Math.min(baseRegen, s.ship.maxShield - s.ship.shield)
         if (regen > 0) s = { ...s, ship: { ...s.ship, shield: s.ship.shield + regen } }
         s = log(s, "You throw the ship into evasive maneuvers and divert power to shields.", "combat")
         return enemyTurn(s, currentEnemy)
       }
 
       if (action.action === "flee") {
-        if (chance(0.55)) {
+        if (chance(0.55 + crewEvadeBonus(s.crew))) {
           const escape = nearestSystem(s.currentSystemId)
           s = log(s, `You break away and micro-jump to ${escape.name}!`, "good")
           s = {

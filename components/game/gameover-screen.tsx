@@ -8,9 +8,13 @@ import { StatChip } from "./ui"
 export function GameOverScreen({
   state,
   onRestart,
+  hasSave,
+  onLoad,
 }: {
   state: GameState
   onRestart: () => void
+  hasSave?: boolean
+  onLoad?: () => void
 }) {
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
@@ -32,9 +36,16 @@ export function GameOverScreen({
           Final rank: <span className="text-accent">{combatRating(state.destroyedShips)}</span>
         </p>
 
-        <Button size="lg" className="mt-8" onClick={onRestart}>
-          New Career
-        </Button>
+        <div className="mt-8 flex flex-col items-center gap-3">
+          <Button size="lg" onClick={onRestart}>
+            New Career
+          </Button>
+          {hasSave && onLoad && (
+            <Button size="lg" variant="outline" onClick={onLoad}>
+              Load Save
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   )

@@ -1,4 +1,59 @@
-import type { EconomyType, Good, Ship, StarSystem } from "./types"
+import type { CrewMember, EconomyType, Faction, FactionId, Good, Ship, StarSystem } from "./types"
+
+export const FACTIONS: Faction[] = [
+  {
+    id: "federation",
+    name: "Galactic Federation",
+    description: "Lawful, trade-protection, diplomacy. The dominant power across the sector.",
+    color: "#4da6ff",
+    rival: "cartel",
+  },
+  {
+    id: "combine",
+    name: "Corporate Combine",
+    description: "Profit-first, high-tech, mercenary. Everything has a price.",
+    color: "#f0a030",
+    rival: "imperial",
+  },
+  {
+    id: "imperial",
+    name: "Imperial Directorate",
+    description: "Authoritarian, militaristic, honor-code. The old empire's iron fist.",
+    color: "#e04060",
+    rival: "combine",
+  },
+  {
+    id: "cartel",
+    name: "Crimson Cartel",
+    description: "Lawless, black-market, freedom-above-all. Pirates, smugglers, and outcasts.",
+    color: "#c040d0",
+    rival: "federation",
+  },
+]
+
+export const FACTIONS_BY_ID: Record<FactionId, Faction> = Object.fromEntries(
+  FACTIONS.map((f) => [f.id, f]),
+) as Record<FactionId, Faction>
+
+export const CREW_NAMES: string[] = [
+  "Jax Vorn", "Lena Riggs", "Quinn Harrow", "Mira Solari", "Decker Cain",
+  "Nyx Vance", "Tess Orell", "Zane Korso", "Riva Fen", "Ash Tolland",
+  "Soren Vale", "Kaela Drift", "Bodhi Ren", "Isha Marr", "Cort Voss",
+]
+
+export const CREW_ROLE_BONUS: Record<CrewMember["role"], { description: string; effect: Record<string, number> }> = {
+  pilot: { description: "+10% evade chance", effect: { evadeChance: 0.1 } },
+  gunner: { description: "+15% weapon damage", effect: { weaponDamageMult: 0.15 } },
+  engineer: { description: "+1 hull repair per turn", effect: { hullRepairPerTurn: 1 } },
+  medic: { description: "+2 shield regen per turn", effect: { shieldRegenPerTurn: 2 } },
+}
+
+export const CREW_WAGE: Record<CrewMember["role"], number> = {
+  pilot: 80,
+  gunner: 70,
+  engineer: 60,
+  medic: 60,
+}
 
 export const GOODS: Good[] = [
   { id: "food", name: "Food Rations", basePrice: 30 },
@@ -51,6 +106,7 @@ export const SYSTEMS: StarSystem[] = [
     economy: "Agricultural",
     techLevel: 4,
     government: "Confederacy",
+    factionId: "federation",
     danger: 0,
     x: 20,
     y: 70,
@@ -62,9 +118,10 @@ export const SYSTEMS: StarSystem[] = [
     name: "Leesti",
     economy: "Industrial",
     techLevel: 7,
-    government: "Corporate State",
-    danger: 1,
-    x: 38,
+      government: "Corporate State",
+      factionId: "combine",
+      danger: 1,
+      x: 38,
     y: 58,
     description:
       "A busy corporate hub. Factories never sleep and the docks are always crowded.",
@@ -74,9 +131,10 @@ export const SYSTEMS: StarSystem[] = [
     name: "Diso",
     economy: "Refinery",
     techLevel: 5,
-    government: "Democracy",
-    danger: 1,
-    x: 30,
+      government: "Democracy",
+      factionId: "federation",
+      danger: 1,
+      x: 30,
     y: 40,
     description:
       "Refineries belch smoke into orange skies, turning raw ore into finished alloys.",
@@ -86,9 +144,10 @@ export const SYSTEMS: StarSystem[] = [
     name: "Zaonce",
     economy: "High-Tech",
     techLevel: 10,
-    government: "Corporate State",
-    danger: 0,
-    x: 52,
+      government: "Corporate State",
+      factionId: "combine",
+      danger: 0,
+      x: 52,
     y: 30,
     description:
       "A gleaming high-tech jewel. Home of the galaxy's finest laboratories.",
@@ -98,9 +157,10 @@ export const SYSTEMS: StarSystem[] = [
     name: "Orerve",
     economy: "Extraction",
     techLevel: 3,
-    government: "Dictatorship",
-    danger: 2,
-    x: 64,
+      government: "Dictatorship",
+      factionId: "imperial",
+      danger: 2,
+      x: 64,
     y: 52,
     description:
       "A grim mining colony clinging to a cratered moon. Watch your back at the bar.",
@@ -110,9 +170,10 @@ export const SYSTEMS: StarSystem[] = [
     name: "Reorte",
     economy: "Agricultural",
     techLevel: 6,
-    government: "Democracy",
-    danger: 1,
-    x: 46,
+      government: "Democracy",
+      factionId: "federation",
+      danger: 1,
+      x: 46,
     y: 78,
     description:
       "Rolling hydroponic farms feed half the sector from this temperate world.",
@@ -122,9 +183,10 @@ export const SYSTEMS: StarSystem[] = [
     name: "Tionisla",
     economy: "Industrial",
     techLevel: 8,
-    government: "Confederacy",
-    danger: 2,
-    x: 74,
+      government: "Confederacy",
+      factionId: "federation",
+      danger: 2,
+      x: 74,
     y: 34,
     description:
       "An industrial sprawl orbiting a famous starship graveyard.",
@@ -134,9 +196,10 @@ export const SYSTEMS: StarSystem[] = [
     name: "Riedquat",
     economy: "Extraction",
     techLevel: 2,
-    government: "Anarchy",
-    danger: 4,
-    x: 82,
+      government: "Anarchy",
+      factionId: "cartel",
+      danger: 4,
+      x: 82,
     y: 64,
     description:
       "Lawless and dangerous. Pirates rule the spacelanes and the law is a rumor.",
@@ -146,9 +209,10 @@ export const SYSTEMS: StarSystem[] = [
     name: "Ensoreus",
     economy: "High-Tech",
     techLevel: 9,
-    government: "Democracy",
-    danger: 1,
-    x: 88,
+      government: "Democracy",
+      factionId: "federation",
+      danger: 1,
+      x: 88,
     y: 20,
     description:
       "A frontier high-tech outpost trading exotic computers and rare medicines.",

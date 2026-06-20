@@ -1,7 +1,7 @@
 "use client"
 
-import { SYSTEMS_BY_ID } from "@/lib/game/data"
-import { cargoUsed, combatRating } from "@/lib/game/engine"
+import { FACTIONS_BY_ID, SYSTEMS_BY_ID } from "@/lib/game/data"
+import { cargoUsed, combatRating, repLabel } from "@/lib/game/engine"
 import type { GameState } from "@/lib/game/types"
 import { StatBar, StatChip } from "./ui"
 
@@ -26,6 +26,12 @@ export function StatusBar({ state }: { state: GameState }) {
             ) : (
               <>
                 Docked: <span className="text-accent">{system.name}</span> · {system.government}
+            {" · "}
+            <span style={{ color: FACTIONS_BY_ID[system.factionId]?.color }}>
+              {FACTIONS_BY_ID[system.factionId]?.name}
+            </span>
+            {" · "}
+            <span className="text-muted-foreground">{repLabel(state.factionRep[system.factionId] ?? 0)}</span>
               </>
             )}
           </p>
