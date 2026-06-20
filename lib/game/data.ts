@@ -226,4 +226,11 @@ export const UPGRADES: Upgrade[] = [
     cost: 500,
     minTechLevel: 2,
   },
+  {
+    id: "scanner",
+    name: "Advanced Scanner Array",
+    description: "Improves salvage yields from derelicts, asteroids, and wrecks. Stackable.",
+    cost: 1000,
+    minTechLevel: 4,
+  },
 ]

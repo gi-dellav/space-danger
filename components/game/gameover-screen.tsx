@@ -26,7 +26,7 @@ export function GameOverScreen({
         <div className="mt-6 grid grid-cols-3 gap-2">
           <StatChip label="Credits" value={state.credits.toLocaleString()} tone="primary" />
           <StatChip label="Kills" value={state.destroyedShips} tone="accent" />
-          <StatChip label="Days" value={state.day} />
+          <StatChip label="Turns" value={state.turn} />
         </div>
         <p className="mt-3 text-sm text-muted-foreground">
           Final rank: <span className="text-accent">{combatRating(state.destroyedShips)}</span>

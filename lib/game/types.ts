@@ -100,6 +100,30 @@ export interface LogEntry {
   tone: LogTone
 }
 
+export type MissionType =
+  | "delivery"
+  | "courier"
+  | "bounty"
+  | "smuggle"
+  | "passenger"
+  | "mining"
+  | "rescue"
+  | "exploration"
+
+export interface Mission {
+  id: number
+  type: MissionType
+  title: string
+  description: string
+  targetSystemId: string
+  requiredGoodId?: string
+  requiredQty?: number
+  deadlineTurn: number
+  reward: number
+  completed: boolean
+  failed: boolean
+}
+
 export interface GameState {
   phase: Phase
   turn: number
@@ -117,4 +141,8 @@ export interface GameState {
   report: TurnReport | null
   log: LogEntry[]
   nextLogId: number
+  missions: Mission[]
+  nextMissionId: number
+  scannerLevel: number
+  installedUpgrades: string[]
 }

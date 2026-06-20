@@ -106,6 +106,269 @@ export function generateMarket(system: StarSystem): MarketEntry[] {
   })
 }
 
+/* ------------------------------- missions --------------------------------- */
+
+function pickTargetSystem(
+  currentId: string,
+  minDistance: number,
+  maxDistance: number,
+): StarSystem | null {
+  const current = SYSTEMS_BY_ID[currentId]
+  const candidates = SYSTEMS.filter((s) => {
+    if (s.id === currentId) return false
+    const d = distanceBetween(current, s)
+    return d >= minDistance && d <= maxDistance
+  })
+  if (candidates.length === 0) return null
+  return candidates[randInt(0, candidates.length - 1)]
+}
+
+export function generateMissions(
+  system: StarSystem,
+  currentTurn: number,
+): import("./types").Mission[] {
+  // Number of missions based on tech level and economy
+  const countBase = system.techLevel >= 8 ? 3 : system.techLevel >= 5 ? 2 : 1
+  const count = Math.min(4, countBase + (chance(0.4) ? 1 : 0))
+
+  const missions: import("./types").Mission[] = []
+  const usedTypes = new Set<string>()
+
+  const missionTemplates: Array<{
+    type: import("./types").MissionType
+    weight: number
+    minTech: number
+    generate: () => import("./types").Mission | null
+  }> = [
+    // --- delivery ---
+    {
+      type: "delivery",
+      weight: 10,
+      minTech: 1,
+      generate() {
+        const target = pickTargetSystem(system.id, 1, 4)
+        if (!target) return null
+        const profile = ECONOMY_PROFILE[target.economy]
+        const candidates = GOODS.filter((g) => !g.illegal && profile.demands.includes(g.id))
+        const good = candidates.length > 0 ? candidates[randInt(0, candidates.length - 1)] : GOODS.filter(g => !g.illegal)[randInt(0, GOODS.filter(g => !g.illegal).length - 1)]
+        const qty = randInt(3, 8)
+        const reward = Math.round(good.basePrice * qty * rand(1.2, 1.8))
+        const deadline = currentTurn + legsFor(system, target) + randInt(2, 5)
+        return {
+          id: 0,
+          type: "delivery",
+          title: `Supply ${target.name}`,
+          description: `Deliver ${qty}t of ${good.name} to ${target.name}. ${target.economy} worlds are paying premium rates.`,
+          targetSystemId: target.id,
+          requiredGoodId: good.id,
+          requiredQty: qty,
+          deadlineTurn: deadline,
+          reward,
+          completed: false,
+          failed: false,
+        }
+      },
+    },
+    // --- courier ---
+    {
+      type: "courier",
+      weight: 8,
+      minTech: 3,
+      generate() {
+        const target = pickTargetSystem(system.id, 1, 3)
+        if (!target) return null
+        const deadline = currentTurn + legsFor(system, target) + randInt(1, 3)
+        const reward = randInt(180, 500)
+        return {
+          id: 0,
+          type: "courier",
+          title: `Data Courier to ${target.name}`,
+          description: `A corporate client needs a secure data chip delivered to ${target.name}. No cargo space required.`,
+          targetSystemId: target.id,
+          deadlineTurn: deadline,
+          reward,
+          completed: false,
+          failed: false,
+        }
+      },
+    },
+    // --- bounty ---
+    {
+      type: "bounty",
+      weight: 7,
+      minTech: 1,
+      generate() {
+        const target = pickTargetSystem(system.id, 1, 3)
+        if (!target) return null
+        const deadline = currentTurn + legsFor(system, target) + randInt(3, 7)
+        const reward = randInt(400, 1200)
+        return {
+          id: 0,
+          type: "bounty",
+          title: `Pirate Hunt near ${target.name}`,
+          description: `A known pirate is operating in the ${target.name} sector. Destroy their ship and claim the bounty.`,
+          targetSystemId: target.id,
+          deadlineTurn: deadline,
+          reward,
+          completed: false,
+          failed: false,
+        }
+      },
+    },
+    // --- smuggle ---
+    {
+      type: "smuggle",
+      weight: 5,
+      minTech: 2,
+      generate() {
+        const target = pickTargetSystem(system.id, 1, 3)
+        if (!target) return null
+        const illegalGoods = GOODS.filter((g) => g.illegal)
+        const good = illegalGoods[randInt(0, illegalGoods.length - 1)]
+        const qty = randInt(2, 5)
+        const reward = Math.round(good.basePrice * qty * rand(2.0, 3.0))
+        const deadline = currentTurn + legsFor(system, target) + randInt(3, 6)
+        return {
+          id: 0,
+          type: "smuggle",
+          title: `Discreet Delivery to ${target.name}`,
+          description: `A shadowy figure needs ${qty}t of ${good.name} moved to ${target.name}. High risk, high reward — avoid police scans.`,
+          targetSystemId: target.id,
+          requiredGoodId: good.id,
+          requiredQty: qty,
+          deadlineTurn: deadline,
+          reward,
+          completed: false,
+          failed: false,
+        }
+      },
+    },
+    // --- passenger ---
+    {
+      type: "passenger",
+      weight: 6,
+      minTech: 2,
+      generate() {
+        const target = pickTargetSystem(system.id, 1, 3)
+        if (!target) return null
+        const deadline = currentTurn + legsFor(system, target) + randInt(2, 4)
+        const reward = randInt(300, 800)
+        return {
+          id: 0,
+          type: "passenger",
+          title: `Passenger to ${target.name}`,
+          description: `A nervous passenger needs discrete transport to ${target.name}. Takes 1t of cabin space. May attract unwanted attention.`,
+          targetSystemId: target.id,
+          requiredQty: 1,
+          deadlineTurn: deadline,
+          reward,
+          completed: false,
+          failed: false,
+        }
+      },
+    },
+    // --- mining ---
+    {
+      type: "mining",
+      weight: 5,
+      minTech: 2,
+      generate() {
+        const target = pickTargetSystem(system.id, 1, 3)
+        if (!target) return null
+        const qty = randInt(3, 7)
+        const reward = Math.round(95 * qty * rand(1.5, 2.2))
+        const deadline = currentTurn + legsFor(system, target) + randInt(4, 8)
+        return {
+          id: 0,
+          type: "mining",
+          title: `Ore Contract for ${target.name}`,
+          description: `A refinery on ${target.name} needs ${qty}t of raw Minerals. Mine them from asteroid fields on your way.`,
+          targetSystemId: target.id,
+          requiredGoodId: "minerals",
+          requiredQty: qty,
+          deadlineTurn: deadline,
+          reward,
+          completed: false,
+          failed: false,
+        }
+      },
+    },
+    // --- rescue ---
+    {
+      type: "rescue",
+      weight: 4,
+      minTech: 3,
+      generate() {
+        const target = pickTargetSystem(system.id, 1, 3)
+        if (!target) return null
+        const deadline = currentTurn + legsFor(system, target) + randInt(2, 4)
+        const reward = randInt(500, 1000)
+        return {
+          id: 0,
+          type: "rescue",
+          title: `Search & Rescue: ${target.name} Sector`,
+          description: `A distress beacon has been traced to the ${target.name} spacelane. Investigate and rescue any survivors.`,
+          targetSystemId: target.id,
+          deadlineTurn: deadline,
+          reward,
+          completed: false,
+          failed: false,
+        }
+      },
+    },
+    // --- exploration ---
+    {
+      type: "exploration",
+      weight: 4,
+      minTech: 4,
+      generate() {
+        const target = pickTargetSystem(system.id, 2, 5)
+        if (!target) return null
+        const deadline = currentTurn + legsFor(system, target) + randInt(3, 6)
+        const reward = randInt(600, 1500)
+        return {
+          id: 0,
+          type: "exploration",
+          title: `Chart ${target.name}`,
+          description: `The Explorers' Guild wants updated navigation data from ${target.name}. A long haul, but the pay is excellent.`,
+          targetSystemId: target.id,
+          deadlineTurn: deadline,
+          reward,
+          completed: false,
+          failed: false,
+        }
+      },
+    },
+  ]
+
+  const eligible = missionTemplates.filter((t) => system.techLevel >= t.minTech)
+  if (eligible.length === 0) return []
+
+  // Weighted random pick, no duplicates
+  for (let i = 0; i < count && eligible.length > 0; i++) {
+    const totalWeight = eligible.reduce((s, t) => s + (usedTypes.has(t.type) ? 0 : t.weight), 0)
+    if (totalWeight <= 0) break
+    let roll = rand(0, totalWeight)
+    let picked: (typeof eligible)[0] | null = null
+    for (const tpl of eligible) {
+      if (usedTypes.has(tpl.type)) continue
+      roll -= tpl.weight
+      if (roll <= 0 || tpl === eligible[eligible.length - 1]) {
+        picked = tpl
+        break
+      }
+    }
+    if (!picked) break
+    const mission = picked.generate()
+    if (mission) {
+      usedTypes.add(picked.type)
+      missions.push(mission)
+    }
+  }
+
+  return missions
+}
+
 /* ---------------------------------- log ----------------------------------- */
 
 function log(state: GameState, text: string, tone: LogTone = "info"): GameState {
@@ -137,6 +400,10 @@ export function createInitialState(): GameState {
     report: null,
     log: [],
     nextLogId: 1,
+    missions: [],
+    nextMissionId: 1,
+    scannerLevel: 0,
+    installedUpgrades: [],
   }
 }
 
@@ -175,6 +442,11 @@ function createPirate(danger: number): Enemy {
     damage: randInt(6, 10) + tier * 2,
     bounty: (maxHull + maxShield) * randInt(3, 6),
   }
+}
+
+function scannerBonus(level: number): { chanceBoost: number; cargoBoost: number } {
+  if (level <= 0) return { chanceBoost: 0, cargoBoost: 0 }
+  return { chanceBoost: level * 0.15, cargoBoost: level }
 }
 
 function createPolice(): Enemy {
@@ -284,14 +556,88 @@ function pickLegEvent(
 
 /* ----------------------------- turn lifecycle ------------------------------ */
 
+// Check and complete missions that have been fulfilled.
+function checkMissionCompletions(state: GameState): GameState {
+  let s = state
+  const here = s.currentSystemId
+  const active = s.missions.filter((m) => !m.completed && !m.failed)
+  for (const mission of active) {
+    // Only complete if docked at the target system
+    if (mission.targetSystemId !== here) continue
+
+    // Delivery / Smuggle / Mining: docked at target with required goods in hold
+    if (
+      (mission.type === "delivery" ||
+        mission.type === "smuggle" ||
+        mission.type === "mining") &&
+      mission.requiredGoodId &&
+      mission.requiredQty
+    ) {
+      const held = s.cargo[mission.requiredGoodId] ?? 0
+      if (held >= mission.requiredQty) {
+        s = {
+          ...s,
+          cargo: { ...s.cargo, [mission.requiredGoodId!]: held - mission.requiredQty },
+          credits: s.credits + mission.reward,
+          missions: s.missions.map((m) =>
+            m.id === mission.id ? { ...m, completed: true } : m,
+          ),
+        }
+        if (s.cargo[mission.requiredGoodId!] <= 0) {
+          const c = { ...s.cargo }
+          delete c[mission.requiredGoodId!]
+          s = { ...s, cargo: c }
+        }
+        s = log(s, `Mission complete: ${mission.title}. Earned ${mission.reward} cr.`, "good")
+      }
+    }
+    // Courier / Exploration / Rescue / Passenger: just reach the target
+    if (
+      mission.type === "courier" ||
+      mission.type === "exploration" ||
+      mission.type === "rescue" ||
+      mission.type === "passenger"
+    ) {
+      s = {
+        ...s,
+        credits: s.credits + mission.reward,
+        missions: s.missions.map((m) =>
+          m.id === mission.id ? { ...m, completed: true } : m,
+        ),
+      }
+      s = log(s, `Mission complete: ${mission.title}. Earned ${mission.reward} cr.`, "good")
+    }
+  }
+  return s
+}
+
+// Check for deadline failures
+function checkMissionDeadlines(state: GameState): GameState {
+  let s = state
+  const active = s.missions.filter((m) => !m.completed && !m.failed)
+  for (const mission of active) {
+    if (s.turn > mission.deadlineTurn) {
+      s = {
+        ...s,
+        missions: s.missions.map((m) =>
+          m.id === mission.id ? { ...m, failed: true } : m,
+        ),
+      }
+      s = log(s, `Mission expired: ${mission.title} — deadline passed.`, "bad")
+    }
+  }
+  return s
+}
+
 // End the current leg/turn and return to the command phase.
 function settleLeg(state: GameState): GameState {
-  const v = state.voyage
+  let s = checkMissionDeadlines(state)
+  const v = s.voyage
   const arrived = v !== null && v.legsDone >= v.legsTotal
   if (arrived) {
     const dest = SYSTEMS_BY_ID[v!.destinationId]
-    let s: GameState = {
-      ...state,
+    s = {
+      ...s,
       phase: "command",
       currentSystemId: dest.id,
       voyage: null,
@@ -307,10 +653,11 @@ function settleLeg(state: GameState): GameState {
       `Docked at ${dest.name} Station. (${dest.economy}, Tech ${dest.techLevel})`,
       "system",
     )
+    s = checkMissionCompletions(s)
     return s
   }
   return {
-    ...state,
+    ...s,
     phase: "command",
     snapshot: null,
     report: null,
@@ -350,6 +697,8 @@ function advanceLeg(state: GameState, silent: boolean): GameState {
   }
   if (silent) s = log(s, "Running silent — minimal emissions.", "info")
 
+  s = checkMissionDeadlines(s)
+
   const outcome = pickLegEvent(s, region, silent)
 
   if (outcome === "combat") {
@@ -388,6 +737,8 @@ export type Action =
   | { type: "BUY_UPGRADE"; upgradeId: string }
   | { type: "REFUEL" }
   | { type: "REPAIR" }
+  | { type: "ACCEPT_MISSION"; mission: import("./types").Mission }
+  | { type: "ABANDON_MISSION"; missionId: number }
 
 /* --------------------------------- combat ---------------------------------- */
 
@@ -415,8 +766,7 @@ function applyDamageToShip(state: GameState, dmg: number): GameState {
   return { ...state, ship: { ...state.ship, shield, hull } }
 }
 
-function enemyTurn(state: GameState): GameState {
-  if (!state.enemy) return state
+function enemyTurn(state: GameState, enemy: Enemy): GameState {
   let s = state
   // Regenerate a sliver of player shield each round.
   if (!s.playerEvading) {
@@ -430,14 +780,14 @@ function enemyTurn(state: GameState): GameState {
   }
 
   if (s.playerEvading && chance(0.55)) {
-    s = log(s, `You juke hard — the ${s.enemy.name}'s shots go wide.`, "combat")
+    s = log(s, `You juke hard — the ${enemy.name}'s shots go wide.`, "combat")
     s = { ...s, playerEvading: false }
     return s
   }
 
-  const dmg = Math.round(s.enemy.damage * rand(0.8, 1.2))
+  const dmg = Math.round(enemy.damage * rand(0.8, 1.2))
   s = applyDamageToShip(s, dmg)
-  s = log(s, `The ${s.enemy.name} hits you for ${dmg} damage.`, "bad")
+  s = log(s, `The ${enemy.name} hits you for ${dmg} damage.`, "bad")
   s = { ...s, playerEvading: false }
 
   if (s.ship.hull <= 0) {
@@ -464,11 +814,12 @@ function handleEnemyDestroyed(state: GameState): GameState {
   }
 
   // Chance to scoop loose cargo from the wreck.
-  if (chance(0.5)) {
+  const bonus = scannerBonus(s.scannerLevel)
+  if (chance(0.5 + bonus.chanceBoost)) {
     const free = s.ship.cargoCapacity - cargoUsed(s.cargo)
     if (free > 0) {
       const good = GOODS[randInt(0, GOODS.length - 1)]
-      const amount = Math.min(free, randInt(1, 4))
+      const amount = Math.min(free, randInt(1 + bonus.cargoBoost, 4 + bonus.cargoBoost))
       s = {
         ...s,
         cargo: { ...s.cargo, [good.id]: (s.cargo[good.id] ?? 0) + amount },
@@ -478,6 +829,23 @@ function handleEnemyDestroyed(state: GameState): GameState {
   }
 
   s = log(s, "Threat eliminated.", "good")
+
+  // Check bounty missions
+  const destId = s.voyage?.destinationId ?? s.currentSystemId
+  const activeBounties = s.missions.filter(
+    (m) => !m.completed && !m.failed && m.type === "bounty" && m.targetSystemId === destId,
+  )
+  for (const mission of activeBounties) {
+    s = {
+      ...s,
+      credits: s.credits + mission.reward,
+      missions: s.missions.map((m) =>
+        m.id === mission.id ? { ...m, completed: true } : m,
+      ),
+    }
+    s = log(s, `Bounty complete: ${mission.title}. Earned ${mission.reward} cr.`, "good")
+  }
+
   return settleLeg(s)
 }
 
@@ -582,6 +950,19 @@ export function gameReducer(state: GameState, action: Action): GameState {
       if (state.credits < upgrade.cost)
         return log(state, `Not enough credits for ${upgrade.name}.`, "bad")
 
+      // Scanner is stackable
+      if (upgrade.id === "scanner") {
+        const newLevel = state.scannerLevel + 1
+        let s: GameState = {
+          ...state,
+          credits: state.credits - upgrade.cost,
+          scannerLevel: newLevel,
+          installedUpgrades: [...state.installedUpgrades, "scanner"],
+        }
+        s = log(s, `Installed Scanner Array Mk ${newLevel} for ${upgrade.cost} cr. Salvage bonus: +${Math.round(newLevel * 15)}% chance, +${newLevel}t cargo.`, "good")
+        return s
+      }
+
       const ship = { ...state.ship }
       switch (upgrade.id) {
         case "cargo":
@@ -606,7 +987,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
           ship.missiles += 2
           break
       }
-      let s: GameState = { ...state, ship, credits: state.credits - upgrade.cost }
+      let s: GameState = { ...state, ship, credits: state.credits - upgrade.cost, installedUpgrades: [...state.installedUpgrades, upgrade.id] }
       s = log(s, `Installed ${upgrade.name} for ${upgrade.cost} cr.`, "good")
       return s
     }
@@ -671,7 +1052,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
       const ev = state.event
       const region =
         SYSTEMS_BY_ID[state.voyage?.destinationId ?? state.currentSystemId]
-      let s = { ...state, event: null }
+      let s: GameState = { ...state, event: null }
 
       if (ev.kind === "police") {
         if (action.optionId === "submit") {
@@ -709,14 +1090,15 @@ export function gameReducer(state: GameState, action: Action): GameState {
           s = log(s, "It was a trap! Raiders were hiding in the hulk!", "combat")
           return s
         }
-        if (chance(0.5)) {
-          const credits = randInt(150, 600)
+        const bonus = scannerBonus(s.scannerLevel)
+        if (chance(0.5 + bonus.chanceBoost)) {
+          const credits = randInt(150 + bonus.cargoBoost * 40, 600 + bonus.cargoBoost * 80)
           s = { ...s, credits: s.credits + credits }
           s = log(s, `Salvage successful — recovered ${credits} cr of valuables.`, "good")
         } else {
           const free = s.ship.cargoCapacity - cargoUsed(s.cargo)
           const good = GOODS.filter((g) => !g.illegal)[randInt(0, 7)]
-          const amount = Math.min(free, randInt(2, 6))
+          const amount = Math.min(free, randInt(2 + bonus.cargoBoost, 6 + bonus.cargoBoost))
           if (amount > 0) {
             s = { ...s, cargo: { ...s.cargo, [good.id]: (s.cargo[good.id] ?? 0) + amount } }
             s = log(s, `Recovered ${amount}t of ${good.name} from the wreck.`, "good")
@@ -749,7 +1131,8 @@ export function gameReducer(state: GameState, action: Action): GameState {
           s = log(s, "You plot a careful course around the field.", "info")
           return settleLeg(s)
         }
-        if (chance(0.4)) {
+        const bonus = scannerBonus(s.scannerLevel)
+        if (chance(0.4 - bonus.chanceBoost * 0.5)) {
           const dmg = randInt(8, 22)
           s = applyDamageToShip(s, dmg)
           s = log(s, `A rock slams your hull for ${dmg} damage!`, "bad")
@@ -760,7 +1143,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
           }
         } else {
           const free = s.ship.cargoCapacity - cargoUsed(s.cargo)
-          const amount = Math.min(free, randInt(2, 7))
+          const amount = Math.min(free, randInt(2 + bonus.cargoBoost, 7 + bonus.cargoBoost))
           if (amount > 0) {
             s = { ...s, cargo: { ...s.cargo, minerals: (s.cargo.minerals ?? 0) + amount } }
             s = log(s, `Mined ${amount}t of Minerals from the field.`, "good")
@@ -796,26 +1179,56 @@ export function gameReducer(state: GameState, action: Action): GameState {
       return settleLeg(s)
     }
 
+    case "ACCEPT_MISSION": {
+      if (!isDocked(state)) return state
+      const mission = action.mission
+      if (state.missions.some((m) => m.id === mission.id)) return state
+      const withId = { ...mission, id: state.nextMissionId }
+      let s: GameState = {
+        ...state,
+        missions: [...state.missions, withId],
+        nextMissionId: state.nextMissionId + 1,
+      }
+      s = log(s, `Accepted mission: ${mission.title}. Deadline: turn ${mission.deadlineTurn}.`, "info")
+      return s
+    }
+
+    case "ABANDON_MISSION": {
+      const mission = state.missions.find((m) => m.id === action.missionId)
+      if (!mission || mission.completed || mission.failed) return state
+      const penalty = Math.floor(mission.reward * 0.25)
+      let s: GameState = {
+        ...state,
+        credits: Math.max(0, state.credits - penalty),
+        missions: state.missions.map((m) =>
+          m.id === action.missionId ? { ...m, failed: true } : m,
+        ),
+      }
+      s = log(s, `Abandoned mission: ${mission.title}. Reputation penalty: ${penalty} cr.`, "bad")
+      return s
+    }
+
     case "COMBAT_ACTION": {
       if (state.phase !== "combat" || !state.enemy) return state
-      let s = state
+      const currentEnemy = state.enemy
+      let s: GameState = state
 
       if (action.action === "fire") {
         const dmg = Math.round(s.ship.weaponDamage * rand(0.8, 1.2))
-        s = { ...s, enemy: damageEnemy(s.enemy, dmg) }
+        s = { ...s, enemy: damageEnemy(currentEnemy, dmg) }
         s = log(s, `You fire lasers for ${dmg} damage.`, "combat")
-        if (s.enemy.hull <= 0) return handleEnemyDestroyed(s)
-        return enemyTurn(s)
+        if (s.enemy!.hull <= 0) return handleEnemyDestroyed(s)
+        return enemyTurn(s, s.enemy!)
       }
 
       if (action.action === "missile") {
         if (s.ship.missiles <= 0) return log(s, "No missiles remaining!", "bad")
         const dmg = randInt(45, 70)
-        const enemy = { ...s.enemy, shield: Math.max(0, s.enemy.shield - 10), hull: s.enemy.hull - dmg }
+        const enemy = { ...currentEnemy, shield: Math.max(0, currentEnemy.shield - 10), hull: currentEnemy.hull - dmg }
         s = { ...s, enemy, ship: { ...s.ship, missiles: s.ship.missiles - 1 } }
-        s = log(s, `Missile away! ${dmg} damage to the ${s.enemy.name}.`, "combat")
-        if (s.enemy.hull <= 0) return handleEnemyDestroyed(s)
-        return enemyTurn(s)
+        s = log(s, `Missile away! ${dmg} damage to the ${enemy.name}.`, "combat")
+        if (enemy.hull <= 0) return handleEnemyDestroyed(s)
+        return enemyTurn(s, enemy)
       }
 
       if (action.action === "evade") {
@@ -823,7 +1236,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         const regen = Math.min(10, s.ship.maxShield - s.ship.shield)
         if (regen > 0) s = { ...s, ship: { ...s.ship, shield: s.ship.shield + regen } }
         s = log(s, "You throw the ship into evasive maneuvers and divert power to shields.", "combat")
-        return enemyTurn(s)
+        return enemyTurn(s, currentEnemy)
       }
 
       if (action.action === "flee") {
@@ -837,7 +1250,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
           return settleLeg(s)
         }
         s = log(s, "Escape failed — the enemy stays on your tail!", "bad")
-        return enemyTurn(s)
+        return enemyTurn(s, currentEnemy)
       }
 
       return s

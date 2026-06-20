@@ -10,18 +10,20 @@ import { LogPanel } from "./log-panel"
 import { ManifestView } from "./manifest-view"
 import { MarketView } from "./market-view"
 import { MenuScreen } from "./menu-screen"
+import { MissionsView } from "./missions-view"
 import { NavigationView } from "./navigation-view"
 import { ShipyardView } from "./shipyard-view"
 import { StatusBar } from "./status-bar"
 import { TransitView } from "./transit-view"
 
-type Tab = "market" | "navigation" | "shipyard" | "manifest"
+type Tab = "market" | "navigation" | "shipyard" | "manifest" | "missions"
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "market", label: "Market" },
   { id: "navigation", label: "Navigation" },
   { id: "shipyard", label: "Shipyard" },
   { id: "manifest", label: "Manifest" },
+  { id: "missions", label: "Missions" },
 ]
 
 export function GameShell() {
@@ -73,6 +75,7 @@ export function GameShell() {
               {tab === "navigation" && <NavigationView state={state} dispatch={dispatch} />}
               {tab === "shipyard" && <ShipyardView state={state} dispatch={dispatch} />}
               {tab === "manifest" && <ManifestView state={state} />}
+              {tab === "missions" && <MissionsView state={state} dispatch={dispatch} />}
             </>
           )}
         </div>
