@@ -47,7 +47,7 @@ export function TransitView({
               </p>
               <p className="font-heading text-lg font-semibold text-accent">{dest.name}</p>
               <p className="text-xs text-muted-foreground">
-                {dest.economy} · Tech {dest.techLevel} ·{" "}
+                {dest.id === "riedquat" ? "Casino" : dest.economy} · Tech {dest.techLevel} ·{" "}
                 <span className={cn("uppercase", DANGER_TONE[dest.danger])}>
                   {DANGER_LABEL[dest.danger]} space
                 </span>

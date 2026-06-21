@@ -136,21 +136,25 @@ export function GameShell() {
           {docked && (
             <>
               <nav className="flex flex-wrap gap-1 rounded-md border border-border bg-card p-1">
-                {TABS.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setTab(t.id)}
-                    className={cn(
-                      "flex-1 rounded-sm px-3 py-2 text-xs font-semibold uppercase tracking-wider transition-colors",
-                      tab === t.id
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                    )}
-                  >
-                    {t.label}
-                  </button>
-                ))}
+                {TABS.map((t) => {
+                  const isCasino = CASINO_SYSTEM_IDS.has(state.currentSystemId) && state.casino != null
+                  const label = t.id === "market" && isCasino ? "Casino" : t.label
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setTab(t.id)}
+                      className={cn(
+                        "flex-1 rounded-sm px-3 py-2 text-xs font-semibold uppercase tracking-wider transition-colors",
+                        tab === t.id
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
               </nav>
 
               <div className={tab === "market" ? "" : "hidden"}>

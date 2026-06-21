@@ -58,7 +58,7 @@ export function NavigationView({
                     <span className="text-xs text-red-500" title="Hostile — docking may be denied">⚠</span>
                   )}
                   <span className="text-xs text-muted-foreground">
-                    {system.economy} · Tech {system.techLevel}
+                    {system.id === "riedquat" ? "Casino" : system.economy} · Tech {system.techLevel}
                   </span>
                   <span className={cn("text-xs uppercase tracking-wide", DANGER_TONE[system.danger])}>
                     {DANGER_LABEL[system.danger]}

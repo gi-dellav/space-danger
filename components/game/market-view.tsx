@@ -87,7 +87,7 @@ export function MarketView({
       title={`${system.name} Commodity Market`}
       right={
         <span className="text-[0.7rem] uppercase tracking-wider text-muted-foreground">
-          {system.economy} · Hold free: <span className="text-foreground">{free}t</span>
+          {system.id === "riedquat" ? "Casino" : system.economy} · Hold free: <span className="text-foreground">{free}t</span>
         </span>
       }
     >
