@@ -152,19 +152,31 @@ export function GameShell() {
                 ))}
               </nav>
 
-              {tab === "market" && <MarketView state={state} dispatch={dispatch} />}
-              {tab === "navigation" && <NavigationView state={state} dispatch={dispatch} />}
-              {tab === "shipyard" && <ShipyardView state={state} dispatch={dispatch} />}
-              {tab === "manifest" && <ManifestView state={state} />}
-              {tab === "missions" && <MissionsView state={state} dispatch={dispatch} />}
-              {tab === "factions" && <FactionsView state={state} />}
-              {tab === "crew" && (
+              <div className={tab === "market" ? "" : "hidden"}>
+                <MarketView state={state} dispatch={dispatch} />
+              </div>
+              <div className={tab === "navigation" ? "" : "hidden"}>
+                <NavigationView state={state} dispatch={dispatch} />
+              </div>
+              <div className={tab === "shipyard" ? "" : "hidden"}>
+                <ShipyardView state={state} dispatch={dispatch} />
+              </div>
+              <div className={tab === "manifest" ? "" : "hidden"}>
+                <ManifestView state={state} />
+              </div>
+              <div className={tab === "missions" ? "" : "hidden"}>
+                <MissionsView state={state} dispatch={dispatch} />
+              </div>
+              <div className={tab === "factions" ? "" : "hidden"}>
+                <FactionsView state={state} />
+              </div>
+              <div className={tab === "crew" ? "" : "hidden"}>
                 <CrewView
                   state={state}
                   onHire={(role: CrewRole) => dispatch({ type: "HIRE_CREW", role })}
                   onFire={(crewId: number) => dispatch({ type: "FIRE_CREW", crewId })}
                 />
-              )}
+              </div>
             </>
           )}
         </div>
