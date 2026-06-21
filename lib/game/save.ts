@@ -34,6 +34,24 @@ function validateState(obj: unknown): obj is GameState {
   )
 }
 
+export function migrateState(state: GameState): GameState {
+  let s = { ...state }
+  // Ensure crew members have skill (default 1 for old saves)
+  s.crew = s.crew.map((c) => ({
+    ...c,
+    skill: c.skill ?? 1,
+  }))
+  // Ensure availableCrew exists
+  if (!s.availableCrew) {
+    s.availableCrew = []
+  }
+  // Ensure casino exists
+  if (s.casino === undefined) {
+    s.casino = null
+  }
+  return s
+}
+
 export function serializeState(state: GameState): string {
   const data = { version: SAVE_VERSION, state }
   return JSON.stringify(data)
@@ -44,7 +62,7 @@ export function deserializeState(json: string): GameState | null {
     const data = JSON.parse(json)
     if (!data || typeof data !== "object" || data.version !== SAVE_VERSION) return null
     if (!validateState(data.state)) return null
-    return data.state as GameState
+    return migrateState(data.state as GameState)
   } catch {
     return null
   }
@@ -73,7 +91,7 @@ export function loadGame(slot: string): GameState | null {
     const slotData = JSON.parse(raw)
     if (!slotData || !slotData.state) return null
     if (!validateState(slotData.state)) return null
-    return slotData.state as GameState
+    return migrateState(slotData.state as GameState)
   } catch {
     return null
   }
@@ -85,7 +103,8 @@ export function getSaveSlot(slot: string): SaveSlot | null {
     if (!raw) return null
     const data = JSON.parse(raw)
     if (!data || !data.state || !validateState(data.state)) return null
-    return data as SaveSlot
+    const migrated = migrateState(data.state as GameState)
+    return { ...data, state: migrated } as SaveSlot
   } catch {
     return null
   }

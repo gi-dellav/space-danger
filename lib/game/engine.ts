@@ -1,4 +1,5 @@
 import {
+  CASINO_SYSTEM_IDS,
   CREW_NAMES,
   CREW_ROLE_BONUS,
   CREW_WAGE,
@@ -26,6 +27,8 @@ import type {
   MarketEntry,
   StarSystem,
 } from "./types"
+import { startHand, hit, stand, doubleDown, resolvePayout, handValue } from "./blackjack"
+import { saveGame } from "./save"
 
 /* ---------------------------------- utils --------------------------------- */
 
@@ -451,15 +454,22 @@ export function createInitialState(): GameState {
     factionRep: { federation: 0, combine: 0, imperial: 0, cartel: 0 },
     crew: [],
     nextCrewId: 1,
+    availableCrew: [],
+    casino: null,
   }
 }
 
 export function startNewGame(): GameState {
   let s = createInitialState()
-  s = { ...s, phase: "command" }
+  const startSystem = SYSTEMS_BY_ID[s.currentSystemId]
+  s = {
+    ...s,
+    phase: "command",
+    availableCrew: generateAvailableCrew(startSystem, [], s.factionRep[startSystem.factionId]),
+  }
   s = log(
     s,
-    `Turn 1. Commander, you are docked at ${SYSTEMS_BY_ID[s.currentSystemId].name} with ${STARTING_CREDITS} credits. Good hunting.`,
+    `Turn 1. Commander, you are docked at ${startSystem.name} with ${STARTING_CREDITS} credits. Good hunting.`,
     "system",
   )
   return s
@@ -491,24 +501,102 @@ function createPirate(danger: number): Enemy {
   }
 }
 
+function crewSkillSum(crew: CrewMember[], role: CrewRole): number {
+  return crew
+    .filter((c) => c.role === role)
+    .reduce((s, c) => s + (c.skill ?? 1), 0)
+}
+
 function crewEvadeBonus(crew: CrewMember[]): number {
-  return crew.some((c) => c.role === "pilot") ? 0.1 : 0
+  const skill = crewSkillSum(crew, "pilot")
+  if (skill === 0) return 0
+  return Math.min(0.15, skill * (CREW_ROLE_BONUS.pilot.effect.evadeChancePerSkill ?? 0.03))
 }
 
 function crewDamageMult(crew: CrewMember[]): number {
-  return 1 + (crew.some((c) => c.role === "gunner") ? 0.15 : 0)
+  const skill = crewSkillSum(crew, "gunner")
+  if (skill === 0) return 1
+  const bonus = skill * (CREW_ROLE_BONUS.gunner.effect.weaponDamageMultPerSkill ?? 0.06)
+  return 1 + Math.min(0.5, bonus)
 }
 
 function crewHullRepair(crew: CrewMember[]): number {
-  return crew.some((c) => c.role === "engineer") ? 1 : 0
+  const skill = crewSkillSum(crew, "engineer")
+  if (skill === 0) return 0
+  return skill * (CREW_ROLE_BONUS.engineer.effect.hullRepairPerSkill ?? 3)
 }
 
 function crewShieldRegen(crew: CrewMember[]): number {
-  return crew.some((c) => c.role === "medic") ? 2 : 0
+  const skill = crewSkillSum(crew, "medic")
+  if (skill === 0) return 0
+  return skill * (CREW_ROLE_BONUS.medic.effect.shieldRegenPerSkill ?? 2)
+}
+
+function crewFuelSave(crew: CrewMember[]): number {
+  const skill = crewSkillSum(crew, "navigator")
+  return Math.floor(skill / 2)
+}
+
+function crewPoliceEvade(crew: CrewMember[]): number {
+  const skill = crewSkillSum(crew, "smuggler")
+  if (skill === 0) return 0
+  return Math.min(0.20, skill * (CREW_ROLE_BONUS.smuggler.effect.policeEvadePerSkill ?? 0.04))
+}
+
+function crewWageFor(role: CrewRole, skill: number): number {
+  return Math.round(CREW_WAGE[role] * (0.6 + skill * 0.4))
 }
 
 function crewTotalWages(crew: CrewMember[]): number {
-  return crew.reduce((s, c) => s + CREW_WAGE[c.role], 0)
+  return crew.reduce((s, c) => s + c.wagePerTurn, 0)
+}
+
+const ALL_CREW_ROLES: CrewRole[] = ["pilot", "gunner", "engineer", "medic", "navigator", "smuggler"]
+
+function generateAvailableCrew(system: StarSystem, currentCrew: CrewMember[], factionRep: number): CrewMember[] {
+  if (system.techLevel < 5) return []
+
+  const maxSkill = system.techLevel >= 8 ? 5 : 3
+  const poolCount = system.techLevel >= 8 ? randInt(1, 3) : randInt(1, 2)
+
+  // Determine eligible roles (no duplicates with current crew)
+  const hiredRoles = new Set(currentCrew.map((c) => c.role))
+  let eligibleRoles = ALL_CREW_ROLES.filter((r) => !hiredRoles.has(r))
+
+  // Smugglers don't appear at Federation stations
+  if (system.factionId === "federation") {
+    eligibleRoles = eligibleRoles.filter((r) => r !== "smuggler")
+  }
+
+  if (eligibleRoles.length === 0) return []
+
+  // Pick random subset
+  const shuffled = eligibleRoles.sort(() => Math.random() - 0.5)
+  const selected = shuffled.slice(0, Math.min(poolCount, eligibleRoles.length))
+
+  const pool: CrewMember[] = []
+  let nextId = Date.now() // placeholder IDs — real ID assigned on hire
+  for (const role of selected) {
+    // Weighted skill: mostly 1-2, rare 4-5
+    let skill: number
+    const r = Math.random()
+    if (maxSkill >= 5 && r < 0.08) skill = 5
+    else if (maxSkill >= 4 && r < 0.20) skill = 4
+    else if (r < 0.45) skill = 3
+    else if (r < 0.75) skill = 2
+    else skill = 1
+    skill = Math.min(skill, maxSkill)
+
+    const wage = crewWageFor(role, skill)
+    pool.push({
+      id: pool.length,
+      name: CREW_NAMES[randInt(0, CREW_NAMES.length - 1)],
+      role,
+      wagePerTurn: wage,
+      skill,
+    })
+  }
+  return pool
 }
 
 function changeRep(state: GameState, factionId: FactionId, delta: number): GameState {
@@ -945,7 +1033,8 @@ function pickLegEvent(
   const rep = state.factionRep[region.factionId] ?? 0
   const policeBase = carryingContraband ? 0.28 : 0.08
   const policeRepMult = rep >= 8 ? 0.2 : rep >= 5 ? 0.5 : rep <= -8 ? 2.5 : rep <= -4 ? 1.8 : 1
-  const policeChance = policeBase * dangerMult * policeRepMult
+  const smugglerEvade = crewPoliceEvade(state.crew)
+  const policeChance = policeBase * dangerMult * policeRepMult * (1 - smugglerEvade)
   if (r < pirateChance + policeChance) {
     return {
       kind: "police",
@@ -1097,6 +1186,7 @@ function settleLeg(state: GameState): GameState {
         event: null,
         playerEvading: false,
         market: generateMarket(escape, s.factionRep[escape.factionId]),
+        availableCrew: generateAvailableCrew(escape, s.crew, s.factionRep[escape.factionId]),
       }
     } else {
       s = {
@@ -1110,6 +1200,7 @@ function settleLeg(state: GameState): GameState {
         event: null,
         playerEvading: false,
         market: generateMarket(dest, s.factionRep[dest.factionId]),
+        availableCrew: generateAvailableCrew(dest, s.crew, s.factionRep[dest.factionId]),
       }
       s = log(
         s,
@@ -1136,7 +1227,8 @@ function advanceLeg(state: GameState, silent: boolean): GameState {
   if (!state.voyage) return state
   let s = state
 
-  const fuelUse = silent ? 2 : 1
+  const fuelSave = crewFuelSave(s.crew)
+  const fuelUse = Math.max(1, (silent ? 2 : 1) - fuelSave)
   const legsDone = s.voyage!.legsDone + 1
   const region = SYSTEMS_BY_ID[s.voyage!.destinationId]
   s = {
@@ -1203,8 +1295,14 @@ export type Action =
   | { type: "REPAIR" }
   | { type: "ACCEPT_MISSION"; mission: import("./types").Mission }
   | { type: "ABANDON_MISSION"; missionId: number }
-  | { type: "HIRE_CREW"; role: CrewRole }
+  | { type: "HIRE_CREW"; index: number }
   | { type: "FIRE_CREW"; crewId: number }
+  | { type: "ENTER_CASINO" }
+  | { type: "LEAVE_CASINO" }
+  | { type: "CASINO_BET"; amount: number }
+  | { type: "CASINO_HIT" }
+  | { type: "CASINO_STAND" }
+  | { type: "CASINO_DOUBLE" }
 
 /* --------------------------------- combat ---------------------------------- */
 
@@ -1527,7 +1625,13 @@ export function gameReducer(state: GameState, action: Action): GameState {
         return log(state, "Not enough credits for a layover (150 cr).", "bad")
       const system = SYSTEMS_BY_ID[state.currentSystemId]
       let s = state
-      s = { ...s, turn: s.turn + 1, credits: s.credits - 150, market: generateMarket(system, s.factionRep[system.factionId]) }
+      s = {
+        ...s,
+        turn: s.turn + 1,
+        credits: s.credits - 150,
+        market: generateMarket(system, s.factionRep[system.factionId]),
+        availableCrew: generateAvailableCrew(system, s.crew, s.factionRep[system.factionId]),
+      }
       s = log(s, `Turn ${s.turn}: layover at ${system.name} — markets shift. (150 cr)`, "info")
       return settleLeg(s)
     }
@@ -1999,20 +2103,22 @@ export function gameReducer(state: GameState, action: Action): GameState {
 
     case "HIRE_CREW": {
       if (!isDocked(state)) return state
-      const system = SYSTEMS_BY_ID[state.currentSystemId]
-      if (system.techLevel < 3) return log(state, "No crew for hire at this backwater station.", "bad")
       if (state.crew.length >= 4) return log(state, "No bunks available — crew quarters full.", "bad")
-      if (state.crew.some((c) => c.role === action.role)) return log(state, `You already have a ${action.role} aboard.`, "bad")
-      const wage = CREW_WAGE[action.role]
-      const name = CREW_NAMES[randInt(0, CREW_NAMES.length - 1)]
-      const member: CrewMember = { id: state.nextCrewId, name, role: action.role, wagePerTurn: wage }
+      const pool = state.availableCrew
+      if (!pool || action.index < 0 || action.index >= pool.length) return log(state, "That crew member is no longer available.", "bad")
+      const candidate = pool[action.index]
+      const signingBonus = candidate.wagePerTurn * 4
+      if (state.credits < signingBonus) return log(state, `Not enough credits for ${candidate.name}'s signing bonus (${signingBonus} cr).`, "bad")
+      const member: CrewMember = { ...candidate, id: state.nextCrewId }
+      const stars = "★".repeat(candidate.skill) + "☆".repeat(5 - candidate.skill)
       let s: GameState = {
         ...state,
         crew: [...state.crew, member],
         nextCrewId: state.nextCrewId + 1,
-        credits: state.credits - wage * 2, // signing bonus
+        credits: state.credits - signingBonus,
+        availableCrew: pool.filter((_, i) => i !== action.index),
       }
-      s = log(s, `Hired ${name} as ${action.role} (${wage} cr/turn). ${CREW_ROLE_BONUS[action.role].description}`, "good")
+      s = log(s, `Hired ${member.name} (${stars} ${member.role}) at ${member.wagePerTurn} cr/turn — signing bonus ${signingBonus} cr.`, "good")
       return s
     }
 
@@ -2073,6 +2179,73 @@ export function gameReducer(state: GameState, action: Action): GameState {
         return enemyTurn(s, currentEnemy)
       }
 
+      return s
+    }
+
+    case "ENTER_CASINO": {
+      if (!isDocked(state)) return state
+      if (!CASINO_SYSTEM_IDS.has(state.currentSystemId)) return log(state, "No casino at this station.", "bad")
+      if (state.casino !== null) return state // already in casino
+      if (state.credits < 10) return log(state, "You need at least 10 credits to enter the casino.", "bad")
+      const lobbyState = startHand(0) // creates deck, etc. — used as lobby
+      lobbyState.phase = "lobby"
+      lobbyState.bet = 0
+      return { ...state, casino: lobbyState }
+    }
+
+    case "LEAVE_CASINO": {
+      if (state.casino === null) return state
+      return { ...state, casino: null }
+    }
+
+    case "CASINO_BET": {
+      if (!state.casino || (state.casino.phase !== "lobby" && state.casino.phase !== "result")) return state
+      const amount = action.amount
+      if (amount < 10) return log(state, "Minimum bet is 10 cr.", "bad")
+      if (amount > state.credits) return log(state, "You don't have enough credits.", "bad")
+      const bjState = startHand(amount)
+      let s: GameState = { ...state, casino: bjState, credits: state.credits - amount }
+      s = log(s, `You place a ${amount} cr bet at the Blackjack table.`, "info")
+      return s
+    }
+
+    case "CASINO_HIT": {
+      if (!state.casino || state.casino.phase !== "player") return state
+      const next = hit(state.casino)
+      let s: GameState = { ...state, casino: next }
+      if (next.phase === "result") {
+        const payout = resolvePayout(next)
+        s = { ...s, credits: s.credits + payout }
+        s = log(s, payout > next.bet ? `Blackjack! You win ${payout} cr.` : payout === next.bet ? "Push — your bet is returned." : "Bust! You lose.", payout >= next.bet ? "good" : "bad")
+        const system = SYSTEMS_BY_ID[s.currentSystemId]
+        saveGame("auto", s, system.name, combatRating(s.destroyedShips))
+      }
+      return s
+    }
+
+    case "CASINO_STAND": {
+      if (!state.casino || state.casino.phase !== "player") return state
+      const next = stand(state.casino)
+      const payout = resolvePayout(next)
+      let s: GameState = { ...state, casino: next, credits: state.credits + payout }
+      const dealerVal = handValue(next.dealerHand)
+      const playerVal = handValue(next.playerHand)
+      s = log(s, payout > next.bet ? `You stand with ${playerVal}. Dealer has ${dealerVal}. You win ${payout} cr!` : payout === next.bet ? `Push — ${playerVal} vs ${dealerVal}. Bet returned.` : `You stand with ${playerVal}. Dealer has ${dealerVal}. You lose.`, payout >= next.bet ? "good" : "bad")
+      const system = SYSTEMS_BY_ID[s.currentSystemId]
+      saveGame("auto", s, system.name, combatRating(s.destroyedShips))
+      return s
+    }
+
+    case "CASINO_DOUBLE": {
+      if (!state.casino || state.casino.phase !== "player") return state
+      const extra = state.casino.bet
+      if (state.credits < extra) return log(state, "Not enough credits to double down.", "bad")
+      const next = doubleDown(state.casino)
+      const payout = resolvePayout(next)
+      let s: GameState = { ...state, casino: next, credits: state.credits - extra + payout }
+      s = log(s, payout > next.bet ? `Double down! You win ${payout} cr.` : payout === next.bet ? "Double down push — bet returned." : "Double down bust! You lose.", payout >= next.bet ? "good" : "bad")
+      const system = SYSTEMS_BY_ID[s.currentSystemId]
+      saveGame("auto", s, system.name, combatRating(s.destroyedShips))
       return s
     }
 

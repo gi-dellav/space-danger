@@ -1,12 +1,13 @@
 "use client"
 
 import { createInitialState, gameReducer, isDocked, isInTransit, combatRating } from "@/lib/game/engine"
-import { SYSTEMS_BY_ID } from "@/lib/game/data"
-import { hasAnySave, loadGame as loadGameFromSlot, saveGame } from "@/lib/game/save"
-import type { GameState, CrewRole } from "@/lib/game/types"
+import { SYSTEMS_BY_ID, CASINO_SYSTEM_IDS } from "@/lib/game/data"
+import { hasAnySave, loadGame as loadGameFromSlot, saveGame, migrateState } from "@/lib/game/save"
+import type { GameState } from "@/lib/game/types"
 import { cn } from "@/lib/utils"
 import { useReducer, useState } from "react"
 import { CombatView } from "./combat-view"
+import { CasinoView } from "./casino-view"
 import { EventView } from "./event-view"
 import { GameOverScreen } from "./gameover-screen"
 import { LogPanel } from "./log-panel"
@@ -51,7 +52,7 @@ export function GameShell() {
         sessionStorage.removeItem("pending-load-state")
         try {
           const parsed = JSON.parse(pendingState) as GameState
-          if (parsed && typeof parsed.turn === "number") return parsed
+          if (parsed && typeof parsed.turn === "number") return migrateState(parsed)
         } catch { /* ignore */ }
       }
     }
@@ -153,7 +154,11 @@ export function GameShell() {
               </nav>
 
               <div className={tab === "market" ? "" : "hidden"}>
-                <MarketView state={state} dispatch={dispatch} />
+                {CASINO_SYSTEM_IDS.has(state.currentSystemId) && state.casino != null ? (
+                  <CasinoView state={state} dispatch={dispatch} />
+                ) : (
+                  <MarketView state={state} dispatch={dispatch} />
+                )}
               </div>
               <div className={tab === "navigation" ? "" : "hidden"}>
                 <NavigationView state={state} dispatch={dispatch} />
@@ -173,7 +178,7 @@ export function GameShell() {
               <div className={tab === "crew" ? "" : "hidden"}>
                 <CrewView
                   state={state}
-                  onHire={(role: CrewRole) => dispatch({ type: "HIRE_CREW", role })}
+                  onHire={(index: number) => dispatch({ type: "HIRE_CREW", index })}
                   onFire={(crewId: number) => dispatch({ type: "FIRE_CREW", crewId })}
                 />
               </div>

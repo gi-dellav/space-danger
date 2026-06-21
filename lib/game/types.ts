@@ -136,13 +136,34 @@ export interface Mission {
   failed: boolean
 }
 
-export type CrewRole = "pilot" | "gunner" | "engineer" | "medic"
+export type CrewRole = "pilot" | "gunner" | "engineer" | "medic" | "navigator" | "smuggler"
 
 export interface CrewMember {
   id: number
   name: string
   role: CrewRole
   wagePerTurn: number
+  skill: number // 1-5, scales the role bonus
+}
+
+export type Suit = "hearts" | "diamonds" | "clubs" | "spades"
+export type Rank = "A" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10" | "J" | "Q" | "K"
+
+export interface Card {
+  suit: Suit
+  rank: Rank
+}
+
+export type BlackjackPhase = "lobby" | "bet" | "player" | "dealer" | "result"
+
+export interface BlackjackState {
+  deck: Card[]
+  playerHand: Card[]
+  dealerHand: Card[]
+  dealerHidden: Card | null
+  bet: number
+  phase: BlackjackPhase
+  result: string | null // "win", "lose", "push", "blackjack"
 }
 
 export interface GameState {
@@ -169,4 +190,6 @@ export interface GameState {
   factionRep: Record<FactionId, number>
   crew: CrewMember[]
   nextCrewId: number
+  availableCrew: CrewMember[]
+  casino: BlackjackState | null
 }

@@ -10,6 +10,8 @@ const ROLE_LABEL: Record<CrewRole, string> = {
   gunner: "Gunner",
   engineer: "Engineer",
   medic: "Medic",
+  navigator: "Navigator",
+  smuggler: "Smuggler",
 }
 
 const ROLE_ICON: Record<CrewRole, string> = {
@@ -17,18 +19,23 @@ const ROLE_ICON: Record<CrewRole, string> = {
   gunner: "✧",
   engineer: "⚒",
   medic: "✚",
+  navigator: "◈",
+  smuggler: "◆",
 }
 
 interface CrewViewProps {
   state: GameState
-  onHire: (role: CrewRole) => void
+  onHire: (index: number) => void
   onFire: (crewId: number) => void
 }
 
 export default function CrewView({ state, onHire, onFire }: CrewViewProps) {
-  const system = state.currentSystemId
-  const availRoles: CrewRole[] = ["pilot", "gunner", "engineer", "medic"]
   const canHire = state.crew.length < 4
+  const pool = state.availableCrew ?? []
+
+  function renderStars(skill: number) {
+    return "★".repeat(skill) + "☆".repeat(5 - skill)
+  }
 
   return (
     <Panel title="Crew Quarters">
@@ -36,55 +43,62 @@ export default function CrewView({ state, onHire, onFire }: CrewViewProps) {
         {state.crew.length === 0 && (
           <p className="text-sm text-muted-foreground">No crew aboard. Visit a station bar to recruit.</p>
         )}
-        {state.crew.map((c) => (
-          <div key={c.id} className="flex items-center justify-between rounded-lg border border-border p-3">
-            <div>
-              <span className="text-sm font-medium">{ROLE_ICON[c.role]} {c.name}</span>
-              <span className="text-xs text-muted-foreground ml-2">{ROLE_LABEL[c.role]}</span>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {CREW_ROLE_BONUS[c.role].description} · {c.wagePerTurn} cr/turn
-              </p>
+        {state.crew.map((c) => {
+          const skill = c.skill ?? 1
+          const stars = renderStars(skill)
+          return (
+            <div key={c.id} className="flex items-center justify-between rounded-lg border border-border p-3">
+              <div>
+                <span className="text-sm font-medium">{ROLE_ICON[c.role]} {c.name}</span>
+                <span className="text-xs text-yellow-400 ml-1">{stars}</span>
+                <span className="text-xs text-muted-foreground ml-2">{ROLE_LABEL[c.role]}</span>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {CREW_ROLE_BONUS[c.role].description} · {c.wagePerTurn} cr/turn
+                </p>
+              </div>
+              <Button size="xs" variant="ghost" onClick={() => onFire(c.id)}>
+                Dismiss
+              </Button>
             </div>
-            <Button size="xs" variant="ghost" onClick={() => onFire(c.id)}>
-              Dismiss
-            </Button>
-          </div>
-        ))}
+          )
+        })}
 
-        {canHire && (
+        {canHire && pool.length > 0 && (
           <div className="mt-4">
             <p className="text-sm font-medium mb-2">Station Bar — Available Crew</p>
             <div className="space-y-2">
-              {availRoles
-                .filter((r) => !state.crew.some((c) => c.role === r))
-                .map((r) => {
-                  const wage = CREW_WAGE[r]
-                  const bonus = CREW_ROLE_BONUS[r]
-                  const signingBonus = wage * 2
-                  const canAfford = state.credits >= signingBonus
-                  return (
-                    <div key={r} className="flex items-center justify-between rounded border border-border p-2">
-                      <div>
-                        <span className="text-sm">{ROLE_ICON[r]} {ROLE_LABEL[r]}</span>
-                        <span className="text-xs text-muted-foreground ml-2">{bonus.description}</span>
-                        <br />
-                        <span className="text-xs text-muted-foreground">
-                          {wage} cr/turn · {signingBonus} cr signing
-                        </span>
-                      </div>
-                      <Button
-                        size="xs"
-                        variant="secondary"
-                        disabled={!canAfford}
-                        onClick={() => onHire(r)}
-                      >
-                        {canAfford ? `Hire (${signingBonus} cr)` : "Too expensive"}
-                      </Button>
+              {pool.map((candidate, i) => {
+                const skill = candidate.skill ?? 1
+                const stars = renderStars(skill)
+                const signingBonus = candidate.wagePerTurn * 4
+                const canAfford = state.credits >= signingBonus
+                return (
+                  <div key={i} className="flex items-center justify-between rounded border border-border p-2">
+                    <div>
+                      <span className="text-sm">{ROLE_ICON[candidate.role]} {candidate.name}</span>
+                      <span className="text-xs text-yellow-400 ml-1">{stars}</span>
+                      <span className="text-xs text-muted-foreground ml-2">{ROLE_LABEL[candidate.role]}</span>
+                      <br />
+                      <span className="text-xs text-muted-foreground">
+                        {candidate.wagePerTurn} cr/turn · {signingBonus} cr signing
+                      </span>
                     </div>
-                  )
-                })}
+                    <Button
+                      size="xs"
+                      variant="secondary"
+                      disabled={!canAfford}
+                      onClick={() => onHire(i)}
+                    >
+                      {canAfford ? `Hire (${signingBonus} cr)` : "Too expensive"}
+                    </Button>
+                  </div>
+                )
+              })}
             </div>
           </div>
+        )}
+        {canHire && pool.length === 0 && state.crew.length > 0 && (
+          <p className="text-xs text-muted-foreground mt-2">No crew available at this station.</p>
         )}
       </div>
     </Panel>

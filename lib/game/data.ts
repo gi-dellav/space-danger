@@ -42,10 +42,12 @@ export const CREW_NAMES: string[] = [
 ]
 
 export const CREW_ROLE_BONUS: Record<CrewMember["role"], { description: string; effect: Record<string, number> }> = {
-  pilot: { description: "+10% evade chance", effect: { evadeChance: 0.1 } },
-  gunner: { description: "+15% weapon damage", effect: { weaponDamageMult: 0.15 } },
-  engineer: { description: "+1 hull repair per turn", effect: { hullRepairPerTurn: 1 } },
-  medic: { description: "+2 shield regen per turn", effect: { shieldRegenPerTurn: 2 } },
+  pilot: { description: "+3% evade per skill", effect: { evadeChancePerSkill: 0.03 } },
+  gunner: { description: "+6% weapon damage per skill", effect: { weaponDamageMultPerSkill: 0.06 } },
+  engineer: { description: "+3 hull repair per skill", effect: { hullRepairPerSkill: 3 } },
+  medic: { description: "+2 shield regen per skill", effect: { shieldRegenPerSkill: 2 } },
+  navigator: { description: "reduces fuel cost by skill/2 per leg", effect: { fuelSavePerSkill: 0.5 } },
+  smuggler: { description: "+4% police scan evade per skill", effect: { policeEvadePerSkill: 0.04 } },
 }
 
 export const CREW_WAGE: Record<CrewMember["role"], number> = {
@@ -53,6 +55,8 @@ export const CREW_WAGE: Record<CrewMember["role"], number> = {
   gunner: 70,
   engineer: 60,
   medic: 60,
+  navigator: 100,
+  smuggler: 90,
 }
 
 export const GOODS: Good[] = [
@@ -222,6 +226,8 @@ export const SYSTEMS: StarSystem[] = [
 export const SYSTEMS_BY_ID: Record<string, StarSystem> = Object.fromEntries(
   SYSTEMS.map((s) => [s.id, s]),
 )
+
+export const CASINO_SYSTEM_IDS = new Set(["riedquat"])
 
 export const STARTING_SYSTEM_ID = "lave"
 
