@@ -127,6 +127,7 @@ export interface Mission {
   title: string
   description: string
   targetSystemId: string
+  sourceSystemId?: string
   factionId?: FactionId
   requiredGoodId?: string
   requiredQty?: number

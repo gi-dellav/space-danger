@@ -122,7 +122,7 @@ export function MissionsView({
   const completedMissions = state.missions.filter((m) => m.completed)
   const failedMissions = state.missions.filter((m) => m.failed)
 
-  const canAcceptMore = activeMissions.length < 6
+  const canAcceptMore = activeMissions.length < 6 && !activeMissions.some((m) => m.sourceSystemId === system.id)
 
   return (
     <div className="flex flex-col gap-4">

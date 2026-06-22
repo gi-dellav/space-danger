@@ -2071,7 +2071,8 @@ export function gameReducer(state: GameState, action: Action): GameState {
       if (!isDocked(state)) return state
       const mission = action.mission
       if (state.missions.some((m) => m.id === mission.id)) return state
-      const withId = { ...mission, id: state.nextMissionId }
+      if (state.missions.some((m) => !m.completed && !m.failed && m.sourceSystemId === state.currentSystemId)) return state
+      const withId = { ...mission, id: state.nextMissionId, sourceSystemId: state.currentSystemId }
       let s: GameState = {
         ...state,
         missions: [...state.missions, withId],
