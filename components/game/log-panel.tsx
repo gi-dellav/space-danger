@@ -13,10 +13,12 @@ const TONE_CLASS: Record<LogTone, string> = {
 }
 
 export function LogPanel({ state }: { state: GameState }) {
-  const endRef = useRef<HTMLDivElement>(null)
+  const topRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+    if (topRef.current?.parentElement) {
+      topRef.current.parentElement.scrollTop = 0
+    }
   }, [state.log.length])
 
   return (
@@ -27,15 +29,15 @@ export function LogPanel({ state }: { state: GameState }) {
         </h2>
       </header>
       <div className="crt-scanlines flex-1 overflow-y-auto px-4 py-3 text-sm leading-relaxed">
+        <div ref={topRef} />
         <ul className="flex flex-col gap-1.5">
-          {state.log.map((entry) => (
+          {[...state.log].reverse().map((entry) => (
             <li key={entry.id} className={cn("flex gap-2", TONE_CLASS[entry.tone])}>
               <span aria-hidden className="select-none text-border">&gt;</span>
               <span className="text-pretty">{entry.text}</span>
             </li>
           ))}
         </ul>
-        <div ref={endRef} />
       </div>
     </div>
   )

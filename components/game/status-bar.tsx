@@ -15,7 +15,7 @@ export function StatusBar({ state }: { state: GameState }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">
-            SPACE <span className="text-primary">DANGER</span>
+            Hypernova <span className="text-primary">ZERO</span>
           </h1>
           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
             {dest ? (

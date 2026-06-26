@@ -131,11 +131,16 @@ export function generateMarket(system: StarSystem, factionRep?: number): MarketE
       // Contraband only shows up in lawless or low-tech ports.
       const available =
         system.danger >= 3
-          ? chance(0.8)
+          ? chance(0.85)
           : system.techLevel <= 4
             ? chance(0.45)
             : chance(0.12)
-      qty = available ? randInt(3, 14) : 0
+      // High-tech anarchy worlds have more stock flowing through their black markets.
+      qty = available
+        ? system.danger >= 3 && system.techLevel >= 5
+          ? randInt(8, 22)
+          : randInt(3, 14)
+        : 0
       // High-tech, high-law worlds pay a premium for what little arrives.
       mult = system.danger >= 3 ? rand(0.7, 1.0) : rand(1.4, 2.1)
     }
@@ -456,6 +461,7 @@ export function createInitialState(): GameState {
     nextCrewId: 1,
     availableCrew: [],
     casino: null,
+    lastBuyPrice: {},
   }
 }
 
@@ -1463,6 +1469,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         market: state.market.map((m) =>
           m.goodId === action.goodId ? { ...m, quantity: m.quantity - qty } : m,
         ),
+        lastBuyPrice: { ...state.lastBuyPrice, [action.goodId]: entry.price },
       }
       return s
     }
@@ -2070,6 +2077,8 @@ export function gameReducer(state: GameState, action: Action): GameState {
     case "ACCEPT_MISSION": {
       if (!isDocked(state)) return state
       const mission = action.mission
+      const activeCount = state.missions.filter(m => !m.completed && !m.failed).length
+      if (activeCount >= 4) return log(state, "Mission roster full (max 4).", "bad")
       if (state.missions.some((m) => m.id === mission.id)) return state
       if (state.missions.some((m) => !m.completed && !m.failed && m.sourceSystemId === state.currentSystemId)) return state
       const withId = { ...mission, id: state.nextMissionId, sourceSystemId: state.currentSystemId }

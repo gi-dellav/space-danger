@@ -8,7 +8,7 @@ export function MenuScreen({ onStart, hasSave, onContinue }: { onStart: () => vo
       <div className="crt-scanlines w-full max-w-xl rounded-lg border border-border bg-card p-8 text-center">
         <p className="text-xs uppercase tracking-[0.4em] text-accent">Galactic Trader</p>
         <h1 className="mt-3 font-heading text-5xl font-bold tracking-tight text-foreground sm:text-6xl">
-          SPACE <span className="text-primary">DANGER</span>
+          Hypernova <span className="text-primary">ZERO</span>
         </h1>
         <p className="mx-auto mt-4 max-w-md text-pretty leading-relaxed text-muted-foreground">
           A lone trader, a battered ship, and a thousand credits. Buy low, sell high, jump between

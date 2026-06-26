@@ -221,6 +221,19 @@ export const SYSTEMS: StarSystem[] = [
     description:
       "A frontier high-tech outpost trading exotic computers and rare medicines.",
   },
+  {
+    id: "hexagos",
+    name: "Hexagos",
+    economy: "Industrial",
+    techLevel: 6,
+    government: "Anarchy",
+    factionId: "cartel",
+    danger: 4,
+    x: 15,
+    y: 25,
+    description:
+      "A forsaken industrial wasteland where the Cartel runs everything. Illicit goods flow like water through its black markets.",
+  },
 ]
 
 export const SYSTEMS_BY_ID: Record<string, StarSystem> = Object.fromEntries(

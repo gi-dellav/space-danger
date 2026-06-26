@@ -1,7 +1,7 @@
 import type { GameState } from "./types"
 
 const SAVE_VERSION = 1
-const SAVE_PREFIX = "space-danger-save-"
+const SAVE_PREFIX = "hypernova-zero-save-"
 
 export interface SaveSlot {
   state: GameState
@@ -48,6 +48,10 @@ export function migrateState(state: GameState): GameState {
   // Ensure casino exists
   if (s.casino === undefined) {
     s.casino = null
+  }
+  // Ensure lastBuyPrice exists
+  if (!s.lastBuyPrice) {
+    s.lastBuyPrice = {}
   }
   return s
 }

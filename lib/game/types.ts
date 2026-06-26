@@ -193,4 +193,5 @@ export interface GameState {
   nextCrewId: number
   availableCrew: CrewMember[]
   casino: BlackjackState | null
+  lastBuyPrice: Record<string, number>
 }

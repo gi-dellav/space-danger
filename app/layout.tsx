@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'SPACE DANGER — Galactic Trader',
+  title: 'Hypernova ZERO — Galactic Trader',
   description:
     'A turn-based, text-focused space trading and combat game inspired by ELITE. Trade, travel, and survive the frontier.',
   generator: 'v0.app',

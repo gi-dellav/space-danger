@@ -67,20 +67,25 @@ export function MarketView({
   const system = SYSTEMS_BY_ID[state.currentSystemId]
   const free = state.ship.cargoCapacity - cargoUsed(state.cargo)
 
-  const [qtys, setQtys] = useState<Record<string, number>>({})
+  const [buyQtys, setBuyQtys] = useState<Record<string, number>>({})
+  const [sellQtys, setSellQtys] = useState<Record<string, number>>({})
 
   // Reset quantities when docked system changes
   const prevSystemRef = useRef(state.currentSystemId)
   useEffect(() => {
     if (prevSystemRef.current !== state.currentSystemId) {
       prevSystemRef.current = state.currentSystemId
-      setQtys({})
+      setBuyQtys({})
+      setSellQtys({})
     }
   }, [state.currentSystemId])
 
-  const getQty = (goodId: string) => qtys[goodId] ?? 1
-  const setQty = (goodId: string, n: number) =>
-    setQtys((prev) => ({ ...prev, [goodId]: n }))
+  const getBuyQty = (goodId: string) => buyQtys[goodId] ?? 1
+  const setBuyQty = (goodId: string, n: number) =>
+    setBuyQtys((prev) => ({ ...prev, [goodId]: n }))
+  const getSellQty = (goodId: string) => sellQtys[goodId] ?? 1
+  const setSellQty = (goodId: string, n: number) =>
+    setSellQtys((prev) => ({ ...prev, [goodId]: n }))
 
   return (
     <Panel
@@ -97,6 +102,7 @@ export function MarketView({
             <tr className="text-left text-[0.65rem] uppercase tracking-wider text-muted-foreground">
               <th className="pb-2 pr-2 font-medium">Commodity</th>
               <th className="pb-2 px-2 text-right font-medium">Price</th>
+              <th className="pb-2 px-2 text-right font-medium">Gal. Avg</th>
               <th className="pb-2 px-2 text-right font-medium">Avail.</th>
               <th className="pb-2 px-2 text-right font-medium">Held</th>
               <th className="pb-2 pl-2 text-right font-medium">Trade</th>
@@ -106,12 +112,14 @@ export function MarketView({
             {state.market.map((m) => {
               const good = GOODS_BY_ID[m.goodId]
               const held = state.cargo[m.goodId] ?? 0
-              const qty = getQty(m.goodId)
+              const buyQty = getBuyQty(m.goodId)
+              const sellQty = getSellQty(m.goodId)
               const maxAffordable = Math.floor(state.credits / m.price)
               const maxBuy = Math.min(m.quantity, free, maxAffordable)
               const canBuy = maxBuy > 0
               const canSell = held > 0
-              const buyCost = qty * m.price
+              const lastPrice = state.lastBuyPrice[m.goodId]
+              const trend = m.price > good.basePrice ? "↑" : m.price < good.basePrice ? "↓" : "·"
               return (
                 <tr key={m.goodId} className="border-t border-border/60">
                   <td className="py-2 pr-2">
@@ -126,41 +134,56 @@ export function MarketView({
                     {m.price.toLocaleString()}
                   </td>
                   <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                    {good.basePrice.toLocaleString()}
+                    <span className={cn("ml-1 text-[0.65rem]", trend === "↑" ? "text-destructive" : trend === "↓" ? "text-success" : "text-muted-foreground")}>{trend}</span>
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
                     {m.quantity}
                   </td>
-                  <td
-                    className={cn(
-                      "px-2 py-2 text-right tabular-nums",
-                      held > 0 ? "text-accent" : "text-muted-foreground",
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    <span className={held > 0 ? "text-accent" : "text-muted-foreground"}>
+                      {held}
+                    </span>
+                    {lastPrice !== undefined && held > 0 && (
+                      <span className="block text-[0.6rem] text-muted-foreground">
+                        @ {lastPrice.toLocaleString()} cr
+                      </span>
                     )}
-                  >
-                    {held}
                   </td>
                   <td className="py-2 pl-2">
-                    <div className="flex justify-end items-center gap-1.5">
-                      <QuantityStepper
-                        value={qty}
-                        onChange={(n) => setQty(m.goodId, n)}
-                        max={Math.max(1, maxBuy)}
-                      />
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={!canBuy || qty > maxBuy}
-                        onClick={() => dispatch({ type: "BUY", goodId: m.goodId, qty })}
-                        className="h-7 px-2 text-xs"
-                      >
-                        Buy {qty > 1 ? qty : ""}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!canSell}
-                        onClick={() => dispatch({ type: "SELL", goodId: m.goodId, qty: held })}
-                        className="h-7 px-2 text-xs"
-                      >
-                        Sell all
-                      </Button>
+                    <div className="flex flex-col gap-1 items-end">
+                      <div className="flex items-center gap-1.5">
+                        <QuantityStepper
+                          value={buyQty}
+                          onChange={(n) => setBuyQty(m.goodId, n)}
+                          max={Math.max(1, maxBuy)}
+                        />
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={!canBuy || buyQty > maxBuy}
+                          onClick={() => dispatch({ type: "BUY", goodId: m.goodId, qty: buyQty })}
+                          className="h-7 px-2 text-xs"
+                        >
+                          Buy {buyQty > 1 ? buyQty : ""}
+                        </Button>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <QuantityStepper
+                          value={sellQty}
+                          onChange={(n) => setSellQty(m.goodId, n)}
+                          max={Math.max(1, held)}
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={!canSell}
+                          onClick={() => dispatch({ type: "SELL", goodId: m.goodId, qty: sellQty })}
+                          className="h-7 px-2 text-xs"
+                        >
+                          Sell {sellQty > 1 ? sellQty : ""}
+                        </Button>
+                      </div>
                     </div>
                   </td>
                 </tr>

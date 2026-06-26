@@ -5,7 +5,7 @@ import { GOODS_BY_ID, SYSTEMS_BY_ID } from "@/lib/game/data"
 import { type Action, generateMissions } from "@/lib/game/engine"
 import type { GameState, Mission } from "@/lib/game/types"
 import { cn } from "@/lib/utils"
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import { Panel } from "./ui"
 
 const TYPE_LABEL: Record<string, string> = {
@@ -110,19 +110,20 @@ export function MissionsView({
   dispatch: (a: Action) => void
 }) {
   const system = SYSTEMS_BY_ID[state.currentSystemId]
-  const [seed, setSeed] = useState(0)
 
   const available = useMemo(() => {
-    // Re-generate when system changes or seed is bumped
-    return generateMissions(system, state.turn)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [system.id, state.turn, seed])
+    // Re-generate when system changes or turn changes (only at start of turn)
+    const generated = generateMissions(system, state.turn)
+    // Filter out missions that have already been accepted or completed
+    const existingIds = new Set(state.missions.map((m) => m.title))
+    return generated.filter((m) => !existingIds.has(m.title))
+  }, [system.id, state.turn])
 
   const activeMissions = state.missions.filter((m) => !m.completed && !m.failed)
   const completedMissions = state.missions.filter((m) => m.completed)
   const failedMissions = state.missions.filter((m) => m.failed)
 
-  const canAcceptMore = activeMissions.length < 6 && !activeMissions.some((m) => m.sourceSystemId === system.id)
+  const canAcceptMore = activeMissions.length < 4 && !activeMissions.some((m) => m.sourceSystemId === system.id)
 
   return (
     <div className="flex flex-col gap-4">
@@ -148,7 +149,6 @@ export function MissionsView({
                 mission={m}
                 action={() => {
                   dispatch({ type: "ACCEPT_MISSION", mission: m })
-                  setSeed((s) => s + 1)
                 }}
                 actionLabel="Accept"
                 actionDisabled={!canAcceptMore}
@@ -157,7 +157,7 @@ export function MissionsView({
           </ul>
         )}
         <p className="mt-3 text-xs text-muted-foreground">
-          Up to 6 active contracts at a time. Failing or abandoning a mission incurs a reputation
+          Up to 4 active contracts at a time. Failing or abandoning a mission incurs a reputation
           penalty of 25% of the reward.
         </p>
       </Panel>
