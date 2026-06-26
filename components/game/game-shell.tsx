@@ -137,7 +137,7 @@ export function GameShell() {
             <>
               <nav className="flex flex-wrap gap-1 rounded-md border border-border bg-card p-1">
                 {TABS.map((t) => {
-                  const isCasino = CASINO_SYSTEM_IDS.has(state.currentSystemId) && state.casino != null
+                  const isCasino = CASINO_SYSTEM_IDS.has(state.currentSystemId)
                   const label = t.id === "market" && isCasino ? "Casino" : t.label
                   return (
                     <button
@@ -158,7 +158,7 @@ export function GameShell() {
               </nav>
 
               <div className={tab === "market" ? "" : "hidden"}>
-                {CASINO_SYSTEM_IDS.has(state.currentSystemId) && state.casino != null ? (
+                {CASINO_SYSTEM_IDS.has(state.currentSystemId) ? (
                   <CasinoView state={state} dispatch={dispatch} />
                 ) : (
                   <MarketView state={state} dispatch={dispatch} />

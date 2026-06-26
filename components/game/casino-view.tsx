@@ -32,8 +32,29 @@ export function CasinoView({
   const [betInput, setBetInput] = useState(50)
   const casino = state.casino
 
+  // Not yet entered
+  if (!casino) {
+    return (
+      <Panel title="Crimson Casino — Riedquat">
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            The blackjack table minimum is 10 cr. Credits: {state.credits} cr.
+          </p>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={state.credits < 10}
+            onClick={() => dispatch({ type: "ENTER_CASINO" })}
+          >
+            Enter Casino
+          </Button>
+        </div>
+      </Panel>
+    )
+  }
+
   // Lobby state
-  if (!casino || casino.phase === "lobby") {
+  if (casino.phase === "lobby") {
     return (
       <Panel title="Crimson Casino — Riedquat">
         <div className="space-y-4">
