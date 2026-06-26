@@ -1,8 +1,12 @@
 "use client"
 
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
+import type { Difficulty } from "@/lib/game/types"
 
-export function MenuScreen({ onStart, hasSave, onContinue }: { onStart: () => void; hasSave?: boolean; onContinue?: () => void }) {
+export function MenuScreen({ onStart, hasSave, onContinue }: { onStart: (difficulty: Difficulty) => void; hasSave?: boolean; onContinue?: () => void }) {
+  const [difficulty, setDifficulty] = useState<Difficulty>("normal")
+
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
       <div className="crt-scanlines w-full max-w-xl rounded-lg border border-border bg-card p-8 text-center">
@@ -21,8 +25,33 @@ export function MenuScreen({ onStart, hasSave, onContinue }: { onStart: () => vo
           <Feature title="Fight" desc="Survive combat" />
         </div>
 
+        <div className="mt-6">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Difficulty</p>
+          <div className="flex justify-center gap-2">
+            {(["easy", "normal", "hard"] as Difficulty[]).map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDifficulty(d)}
+                className={`px-4 py-2 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors ${
+                  difficulty === d
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-muted-foreground hover:bg-secondary/80"
+                }`}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+          <p className="text-[0.65rem] text-muted-foreground mt-1">
+            {difficulty === "easy" && "Slower scaling — relaxed trading"}
+            {difficulty === "normal" && "Standard scaling — balanced challenge"}
+            {difficulty === "hard" && "Aggressive scaling — for veteran commanders"}
+          </p>
+        </div>
+
         <div className="mt-8 flex flex-col items-center gap-3">
-          <Button size="lg" className="w-full sm:w-auto" onClick={onStart}>
+          <Button size="lg" className="w-full sm:w-auto" onClick={() => onStart(difficulty)}>
             Launch Career
           </Button>
           {hasSave && onContinue && (

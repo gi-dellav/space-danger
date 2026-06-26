@@ -258,6 +258,17 @@ export const STARTING_SHIP: Ship = {
 
 export const STARTING_CREDITS = 1000
 
+export interface DifficultyConfig {
+  upgradeCostScale: number
+  combatScale: number
+}
+
+export const DIFFICULTY_CONFIG: Record<import("./types").Difficulty, DifficultyConfig> = {
+  easy: { upgradeCostScale: 0.01, combatScale: 0.5 },
+  normal: { upgradeCostScale: 0.02, combatScale: 1.0 },
+  hard: { upgradeCostScale: 0.04, combatScale: 2.0 },
+}
+
 export interface Upgrade {
   id: string
   name: string

@@ -68,7 +68,7 @@ export function GameShell() {
   if (state.phase === "menu") {
     return (
       <MenuScreen
-        onStart={() => dispatch({ type: "NEW_GAME" })}
+        onStart={(difficulty) => dispatch({ type: "NEW_GAME", difficulty })}
         hasSave={saveExists}
         onContinue={() => {
           const loaded = loadGameFromSlot("auto")
@@ -85,7 +85,7 @@ export function GameShell() {
     return (
       <GameOverScreen
         state={state}
-        onRestart={() => dispatch({ type: "NEW_GAME" })}
+        onRestart={() => dispatch({ type: "NEW_GAME", difficulty: "normal" })}
         hasSave={saveExists}
         onLoad={() => {
           const loaded = loadGameFromSlot("auto")

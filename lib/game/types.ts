@@ -1,3 +1,5 @@
+export type Difficulty = "easy" | "normal" | "hard"
+
 export type EconomyType =
   | "Agricultural"
   | "Extraction"
@@ -170,6 +172,7 @@ export interface BlackjackState {
 export interface GameState {
   phase: Phase
   turn: number
+  difficulty: Difficulty
   credits: number
   ship: Ship
   cargo: Record<string, number>

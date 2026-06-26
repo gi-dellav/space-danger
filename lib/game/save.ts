@@ -53,6 +53,10 @@ export function migrateState(state: GameState): GameState {
   if (!s.lastBuyPrice) {
     s.lastBuyPrice = {}
   }
+  // Ensure difficulty exists (added after launch)
+  if (!s.difficulty) {
+    s.difficulty = "normal"
+  }
   return s
 }
 

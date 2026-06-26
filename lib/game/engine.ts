@@ -3,6 +3,7 @@ import {
   CREW_NAMES,
   CREW_ROLE_BONUS,
   CREW_WAGE,
+  DIFFICULTY_CONFIG,
   ECONOMY_PROFILE,
   FACTIONS,
   FACTIONS_BY_ID,
@@ -18,6 +19,7 @@ import {
 import type {
   CrewMember,
   CrewRole,
+  Difficulty,
   Enemy,
   FactionId,
   GameEvent,
@@ -438,6 +440,7 @@ export function createInitialState(): GameState {
   return {
     phase: "menu",
     turn: 1,
+    difficulty: "normal",
     credits: STARTING_CREDITS,
     ship: { ...STARTING_SHIP },
     cargo: {},
@@ -465,8 +468,8 @@ export function createInitialState(): GameState {
   }
 }
 
-export function startNewGame(): GameState {
-  let s = createInitialState()
+export function startNewGame(difficulty: Difficulty = "normal"): GameState {
+  let s = { ...createInitialState(), difficulty }
   const startSystem = SYSTEMS_BY_ID[s.currentSystemId]
   s = {
     ...s,
@@ -492,8 +495,10 @@ const PIRATE_NAMES = [
   "Gecko Corsair",
 ]
 
-function createPirate(danger: number): Enemy {
-  const tier = danger + randInt(0, 1)
+function createPirate(danger: number, turn: number, difficulty: Difficulty): Enemy {
+  const cfg = DIFFICULTY_CONFIG[difficulty]
+  const turnTier = Math.floor(turn * cfg.combatScale / 10)
+  const tier = danger + randInt(0, 1) + turnTier
   const maxHull = randInt(28, 46) + tier * 8
   const maxShield = randInt(0, 14) + tier * 6
   return {
@@ -637,16 +642,18 @@ function scannerBonus(level: number): { chanceBoost: number; cargoBoost: number 
   return { chanceBoost: level * 0.15, cargoBoost: level }
 }
 
-function createPolice(): Enemy {
-  const maxHull = randInt(55, 75)
-  const maxShield = randInt(30, 45)
+function createPolice(turn: number, difficulty: Difficulty): Enemy {
+  const cfg = DIFFICULTY_CONFIG[difficulty]
+  const turnTier = Math.floor(turn * cfg.combatScale / 10)
+  const maxHull = randInt(55, 75) + turnTier * 6
+  const maxShield = randInt(30, 45) + turnTier * 4
   return {
     name: "System Police Viper",
     hull: maxHull,
     maxHull,
     shield: maxShield,
     maxShield,
-    damage: randInt(10, 14),
+    damage: randInt(10, 14) + turnTier,
     bounty: 0,
   }
 }
@@ -1264,7 +1271,7 @@ function advanceLeg(state: GameState, silent: boolean): GameState {
   const outcome = pickLegEvent(s, region, silent)
 
   if (outcome === "combat") {
-    const enemy = createPirate(region.danger)
+    const enemy = createPirate(region.danger, s.turn, s.difficulty)
     s = { ...s, phase: "combat", enemy, playerEvading: false }
     s = log(s, `Mass-lock! A ${enemy.name} drops out of warp and opens fire!`, "combat")
     return s
@@ -1286,7 +1293,7 @@ function advanceLeg(state: GameState, silent: boolean): GameState {
 /* --------------------------------- actions -------------------------------- */
 
 export type Action =
-  | { type: "NEW_GAME" }
+  | { type: "NEW_GAME"; difficulty: Difficulty }
   | { type: "BUY"; goodId: string; qty: number }
   | { type: "SELL"; goodId: string; qty: number }
   | { type: "DEPART"; systemId: string }
@@ -1451,7 +1458,7 @@ function nearestSystem(fromId: string): StarSystem {
 export function gameReducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case "NEW_GAME":
-      return startNewGame()
+      return startNewGame(action.difficulty)
 
     case "BUY": {
       if (!isDocked(state)) return state
@@ -1537,19 +1544,20 @@ export function gameReducer(state: GameState, action: Action): GameState {
       const system = SYSTEMS_BY_ID[state.currentSystemId]
       if (system.techLevel < upgrade.minTechLevel)
         return log(state, `${upgrade.name} requires Tech Level ${upgrade.minTechLevel}.`, "bad")
-      if (state.credits < upgrade.cost)
-        return log(state, `Not enough credits for ${upgrade.name}.`, "bad")
+      const dynamicCost = Math.round(upgrade.cost * (1 + state.turn * DIFFICULTY_CONFIG[state.difficulty].upgradeCostScale))
+      if (state.credits < dynamicCost)
+        return log(state, `Not enough credits for ${upgrade.name} (${dynamicCost.toLocaleString()} cr).`, "bad")
 
       // Scanner is stackable
       if (upgrade.id === "scanner") {
         const newLevel = state.scannerLevel + 1
         let s: GameState = {
           ...state,
-          credits: state.credits - upgrade.cost,
+          credits: state.credits - dynamicCost,
           scannerLevel: newLevel,
           installedUpgrades: [...state.installedUpgrades, "scanner"],
         }
-        s = log(s, `Installed Scanner Array Mk ${newLevel} for ${upgrade.cost} cr. Salvage bonus: +${Math.round(newLevel * 15)}% chance, +${newLevel}t cargo.`, "good")
+        s = log(s, `Installed Scanner Array Mk ${newLevel} for ${dynamicCost} cr. Salvage bonus: +${Math.round(newLevel * 15)}% chance, +${newLevel}t cargo.`, "good")
         return s
       }
 
@@ -1577,8 +1585,8 @@ export function gameReducer(state: GameState, action: Action): GameState {
           ship.missiles += 2
           break
       }
-      let s: GameState = { ...state, ship, credits: state.credits - upgrade.cost, installedUpgrades: [...state.installedUpgrades, upgrade.id] }
-      s = log(s, `Installed ${upgrade.name} for ${upgrade.cost} cr.`, "good")
+      let s: GameState = { ...state, ship, credits: state.credits - dynamicCost, installedUpgrades: [...state.installedUpgrades, upgrade.id] }
+      s = log(s, `Installed ${upgrade.name} for ${dynamicCost} cr.`, "good")
       return s
     }
 
@@ -1677,7 +1685,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         }
         adjustRep(-3)
         s = { ...s, factionRep: { ...s.factionRep, cartel: Math.min(10, (s.factionRep.cartel ?? 0) + 1) } }
-        const enemy = createPolice()
+        const enemy = createPolice(s.turn, s.difficulty)
         s = { ...s, phase: "combat", enemy, playerEvading: false }
         s = log(s, "You gun the throttle! Police Viper gives chase and opens fire!", "combat")
         return s
@@ -1689,7 +1697,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
           return settleLeg(s)
         }
         if (chance(0.3)) {
-          const enemy = createPirate(region.danger + 1)
+          const enemy = createPirate(region.danger + 1, s.turn, s.difficulty)
           s = { ...s, phase: "combat", enemy, playerEvading: false }
           s = log(s, "It was a trap! Raiders were hiding in the hulk!", "combat")
           return s
@@ -1719,7 +1727,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
           return settleLeg(s)
         }
         if (chance(0.35)) {
-          const enemy = createPirate(region.danger + 1)
+          const enemy = createPirate(region.danger + 1, s.turn, s.difficulty)
           s = { ...s, phase: "combat", enemy, playerEvading: false }
           s = log(s, "The 'distress call' was bait — pirates spring an ambush!", "combat")
           return s
@@ -1795,7 +1803,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
           s = log(s, "You comply with the inspection. The Imperial warship stands down.", "good")
         } else {
           adjustRep(-2, "imperial")
-          const enemy = createPolice()
+          const enemy = createPolice(s.turn, s.difficulty)
           s = { ...s, phase: "combat", enemy, playerEvading: false }
           s = log(s, "You resist! The Imperial warship opens fire!", "combat")
           return s
@@ -1824,7 +1832,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
           s = log(s, `You pay ${paid} cr. The Cartel raider grins and lets you pass.`, "info")
         } else {
           adjustRep(-2, "cartel")
-          const enemy = createPirate(region.danger + 1)
+          const enemy = createPirate(region.danger + 1, s.turn, s.difficulty)
           s = { ...s, phase: "combat", enemy, playerEvading: false }
           s = log(s, "\"Wrong answer.\" The Cartel raider opens fire!", "combat")
           return s
@@ -1886,7 +1894,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
             adjustRep(1, "combine")
             s = log(s, `It was a real emergency — you save the crew and earn ${reward} cr.`, "good")
           } else {
-            const enemy = createPirate(region.danger + 1)
+            const enemy = createPirate(region.danger + 1, s.turn, s.difficulty)
             s = { ...s, phase: "combat", enemy, playerEvading: false }
             s = log(s, "Cartel trap confirmed! Pirates spring from behind the wreck!", "combat")
             return s
@@ -1961,7 +1969,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
 
       if (ev.kind === "pirate_ambush") {
         if (action.optionId === "fight") {
-          const enemy = createPirate(region.danger + 1)
+          const enemy = createPirate(region.danger + 1, s.turn, s.difficulty)
           s = { ...s, phase: "combat", enemy, playerEvading: false }
           s = log(s, "You swing into evasive combat — the pirate is on you!", "combat")
           return s
@@ -1969,7 +1977,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
           if (chance(0.55 + crewEvadeBonus(s.crew))) {
             s = log(s, "Full power to engines — you outrun the ambush!", "good")
           } else {
-            const enemy = createPirate(region.danger)
+            const enemy = createPirate(region.danger, s.turn, s.difficulty)
             s = { ...s, phase: "combat", enemy, playerEvading: false }
             s = log(s, "They're faster! The pirate cuts you off!", "combat")
             return s
