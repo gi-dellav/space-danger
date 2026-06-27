@@ -84,6 +84,8 @@ export interface Voyage {
   destinationId: string
   legsTotal: number
   legsDone: number
+  exploration?: "ambush" | "asteroids"
+  originSystemId?: string
 }
 
 // Captured at the start of a move so the end-of-turn summary can show deltas.

@@ -89,22 +89,60 @@ export function NavigationView({
         })}
       </ul>
 
-      <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-border/60 bg-secondary/40 p-3">
-        <div className="min-w-0">
-          <p className="font-heading text-sm font-semibold text-foreground">Lay Over</p>
-          <p className="text-xs text-muted-foreground">
-            Spend a turn docked at {current.name}. Markets shift and prices reset. <span className="text-foreground">150 cr</span>
-          </p>
+      <div className="mt-4 flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-secondary/40 p-3">
+          <div className="min-w-0">
+            <p className="font-heading text-sm font-semibold text-foreground">Explore for Ambush</p>
+            <p className="text-xs text-muted-foreground">
+              Patrol nearby space hunting pirates for salvage. <span className="text-foreground">2–4 ly fuel</span>
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8 shrink-0"
+            disabled={state.ship.fuel < 2}
+            onClick={() => dispatch({ type: "EXPLORE_AMBUSH" })}
+          >
+            {state.ship.fuel < 2 ? "Need fuel" : "Patrol"}
+          </Button>
         </div>
-        <Button
-          size="sm"
-          variant="secondary"
-          className="h-8 shrink-0"
-          disabled={state.credits < 150}
-          onClick={() => dispatch({ type: "LAYOVER" })}
-        >
-          {state.credits < 150 ? "Can't afford" : "Pass Turn"}
-        </Button>
+
+        <div className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-secondary/40 p-3">
+          <div className="min-w-0">
+            <p className="font-heading text-sm font-semibold text-foreground">Explore for Asteroids</p>
+            <p className="text-xs text-muted-foreground">
+              Prospect asteroid fields for minerals and salvage. <span className="text-foreground">2–4 ly fuel</span>
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8 shrink-0"
+            disabled={state.ship.fuel < 2}
+            onClick={() => dispatch({ type: "EXPLORE_ASTEROIDS" })}
+          >
+            {state.ship.fuel < 2 ? "Need fuel" : "Prospect"}
+          </Button>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-secondary/40 p-3">
+          <div className="min-w-0">
+            <p className="font-heading text-sm font-semibold text-foreground">Lay Over</p>
+            <p className="text-xs text-muted-foreground">
+              Spend a turn docked at {current.name}. Markets shift and prices reset. <span className="text-foreground">150 cr</span>
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8 shrink-0"
+            disabled={state.credits < 150}
+            onClick={() => dispatch({ type: "LAYOVER" })}
+          >
+            {state.credits < 150 ? "Can't afford" : "Pass Turn"}
+          </Button>
+        </div>
       </div>
     </Panel>
   )

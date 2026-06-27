@@ -111,11 +111,15 @@ export function MarketView({
           <tbody>
             {state.market.map((m) => {
               const good = GOODS_BY_ID[m.goodId]
-              const held = state.cargo[m.goodId] ?? 0
+              const isMissile = m.goodId === "missiles"
+              const held = isMissile ? state.ship.missiles : (state.cargo[m.goodId] ?? 0)
               const buyQty = getBuyQty(m.goodId)
               const sellQty = getSellQty(m.goodId)
               const maxAffordable = Math.floor(state.credits / m.price)
-              const maxBuy = Math.min(m.quantity, free, maxAffordable)
+              const maxMissileCap = isMissile ? Math.max(0, 8 - state.ship.missiles) : Infinity
+              const maxBuy = isMissile
+                ? Math.min(m.quantity, maxMissileCap, maxAffordable)
+                : Math.min(m.quantity, free, maxAffordable)
               const canBuy = maxBuy > 0
               const canSell = held > 0
               const lastPrice = state.lastBuyPrice[m.goodId]
@@ -142,7 +146,7 @@ export function MarketView({
                   </td>
                   <td className="px-2 py-2 text-right tabular-nums">
                     <span className={held > 0 ? "text-accent" : "text-muted-foreground"}>
-                      {held}
+                      {held}{isMissile ? " mounted" : ""}
                     </span>
                     {lastPrice !== undefined && held > 0 && (
                       <span className="block text-[0.6rem] text-muted-foreground">

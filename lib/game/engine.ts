@@ -110,7 +110,7 @@ function systemFactionRep(state: GameState): number {
 export function generateMarket(system: StarSystem, factionRep?: number): MarketEntry[] {
   const profile = ECONOMY_PROFILE[system.economy]
   const repMult = factionRep !== undefined ? repPriceMult(factionRep) : 1
-  return GOODS.map((good) => {
+  const entries = GOODS.map((good) => {
     let mult = 1
     let qty = randInt(8, 22)
 
@@ -150,6 +150,15 @@ export function generateMarket(system: StarSystem, factionRep?: number): MarketE
     const price = Math.max(1, Math.round(good.basePrice * mult * repMult * rand(0.92, 1.08)))
     return { goodId: good.id, price, quantity: qty }
   })
+  // Missiles are a specialty item — available at tech >= 4 systems
+  if (system.techLevel >= 4) {
+    const missileGood = GOODS_BY_ID["missiles"]
+    const mult = system.techLevel >= 7 ? rand(0.6, 0.85) : rand(0.9, 1.2)
+    const qty = randInt(1, 5)
+    const price = Math.max(1, Math.round(missileGood.basePrice * mult * repMult * rand(0.92, 1.08)))
+    entries.push({ goodId: "missiles", price, quantity: qty })
+  }
+  return entries
 }
 
 /* ------------------------------- missions --------------------------------- */
@@ -565,10 +574,8 @@ function crewTotalWages(crew: CrewMember[]): number {
 const ALL_CREW_ROLES: CrewRole[] = ["pilot", "gunner", "engineer", "medic", "navigator", "smuggler"]
 
 function generateAvailableCrew(system: StarSystem, currentCrew: CrewMember[], factionRep: number): CrewMember[] {
-  if (system.techLevel < 5) return []
-
-  const maxSkill = system.techLevel >= 8 ? 5 : 3
-  const poolCount = system.techLevel >= 8 ? randInt(1, 3) : randInt(1, 2)
+  const maxSkill = system.techLevel >= 8 ? 5 : system.techLevel >= 4 ? 3 : 2
+  const poolCount = randInt(1, 3)
 
   // Determine eligible roles (no duplicates with current crew)
   const hiredRoles = new Set(currentCrew.map((c) => c.role))
@@ -1180,8 +1187,10 @@ function settleLeg(state: GameState): GameState {
   }
   const v = s.voyage
   const arrived = v !== null && v.legsDone >= v.legsTotal
+  // Exploration trips return to origin system
+  const destId = arrived && v.exploration && v.originSystemId ? v.originSystemId : v?.destinationId ?? s.currentSystemId
   if (arrived) {
-    const dest = SYSTEMS_BY_ID[v!.destinationId]
+    const dest = SYSTEMS_BY_ID[destId]
     // Check hostile docking
     const destRep = s.factionRep[dest.factionId] ?? 0
     if (destRep <= -8 && dest.danger < 3) {
@@ -1251,16 +1260,20 @@ function advanceLeg(state: GameState, silent: boolean): GameState {
     voyage: { ...s.voyage!, legsDone },
   }
 
+  const exploration = s.voyage!.exploration
+
   if (legsDone === 1) {
+    const label = exploration === "ambush" ? "On patrol — hunting pirates" : exploration === "asteroids" ? "Prospecting — mining run" : `course set for ${region.name} — ${s.voyage!.legsTotal} leg run`
     s = log(
       s,
-      `Turn ${s.turn}: course set for ${region.name} — ${s.voyage!.legsTotal} leg run. Drive engaged.`,
+      `Turn ${s.turn}: ${label}. Drive engaged.`,
       "system",
     )
   } else {
+    const label = exploration === "ambush" ? `Sweep ${legsDone}/${s.voyage!.legsTotal} — scanning for prey` : exploration === "asteroids" ? `Sector ${legsDone}/${s.voyage!.legsTotal} — scanning for ore` : `leg ${legsDone}/${s.voyage!.legsTotal} toward ${region.name}`
     s = log(
       s,
-      `Turn ${s.turn}: leg ${legsDone}/${s.voyage!.legsTotal} toward ${region.name}.`,
+      `Turn ${s.turn}: ${label}.`,
       "system",
     )
   }
@@ -1268,12 +1281,20 @@ function advanceLeg(state: GameState, silent: boolean): GameState {
 
   s = checkMissionDeadlines(s)
 
-  const outcome = pickLegEvent(s, region, silent)
+  let outcome: "combat" | GameEvent | null
+  if (exploration) {
+    outcome = pickExplorationEvent(s, region, exploration)
+  } else {
+    outcome = pickLegEvent(s, region, silent)
+  }
 
   if (outcome === "combat") {
-    const enemy = createPirate(region.danger, s.turn, s.difficulty)
-    s = { ...s, phase: "combat", enemy, playerEvading: false }
-    s = log(s, `Mass-lock! A ${enemy.name} drops out of warp and opens fire!`, "combat")
+    const enemy = exploration === "ambush"
+      ? createPirate(region.danger + 1, s.turn, s.difficulty)
+      : createPirate(region.danger, s.turn, s.difficulty)
+    s = { ...s, phase: "combat", enemy, playerEvading: !exploration }
+    const msg = exploration === "ambush" ? `Target spotted! A ${enemy.name} — closing for the ambush!` : `Mass-lock! A ${enemy.name} drops out of warp and opens fire!`
+    s = log(s, msg, "combat")
     return s
   }
   if (outcome && typeof outcome === "object") {
@@ -1284,10 +1305,96 @@ function advanceLeg(state: GameState, silent: boolean): GameState {
 
   s = log(
     s,
-    silent ? "Silent running — you slip through undetected." : "Clear space — no contacts.",
+    exploration ? (exploration === "ambush" ? "Patrol sweep — no contacts." : "Sector scanned — no ore deposits found.") : (silent ? "Silent running — you slip through undetected." : "Clear space — no contacts."),
     "info",
   )
   return settleLeg(s)
+}
+
+// Roll encounter for exploration trips (ambush or asteroid biased)
+function pickExplorationEvent(
+  state: GameState,
+  region: StarSystem,
+  kind: "ambush" | "asteroids",
+): "combat" | GameEvent | null {
+  const r = Math.random()
+
+  if (kind === "ambush") {
+    // ~55% ambush opportunity, ~15% danger, ~15% random event, ~15% nothing
+    if (r < 0.55) {
+      return {
+        kind: "ambush_opportunity",
+        title: "Target Detected",
+        text: `Scanners lock onto a ship in ${region.name} space. They haven't spotted you — perfect ambush position.`,
+        options: [
+          { id: "engage", label: "Ambush now — first strike!" },
+          { id: "letgo", label: "Let them pass" },
+        ],
+      }
+    }
+    if (r < 0.70) {
+      // Dangerous counter-ambush
+      return "combat"
+    }
+    if (r < 0.85) {
+      // Pick a random standard event
+      const tpls = legEventTemplates(state, region)
+      const generated: { weight: number; event: GameEvent }[] = []
+      for (const tpl of tpls) {
+        const ev = tpl.generate()
+        if (ev) generated.push({ weight: tpl.weight, event: ev })
+      }
+      if (generated.length > 0) {
+        const totalWeight = generated.reduce((s, g) => s + g.weight, 0)
+        let roll = rand(0, totalWeight)
+        for (const g of generated) {
+          roll -= g.weight
+          if (roll <= 0) return g.event
+        }
+        return generated[0].event
+      }
+    }
+    return null
+  }
+
+  // Asteroids — ~50% mining, ~15% wreck/salvage, ~10% pirates, ~15% danger, ~10% nothing
+  if (r < 0.50) {
+    return {
+      kind: "asteroid_field_explore",
+      title: "Rich Asteroid Field",
+      text: "A dense field of mineral-rich asteroids stretches before you. Prime for mining, but watch for unstable rocks.",
+      options: [
+        { id: "mine", label: "Deploy mining laser" },
+        { id: "avoid", label: "Too risky — navigate around" },
+      ],
+    }
+  }
+  if (r < 0.65) {
+    return {
+      kind: "derelict",
+      title: "Derelict Ship Adrift",
+      text: "Your scanner pings a powered-down hulk drifting in the dark. It might hold salvage — or a nasty surprise.",
+      options: [
+        { id: "salvage", label: "Board and salvage" },
+        { id: "ignore", label: "Leave it alone" },
+      ],
+    }
+  }
+  if (r < 0.75) {
+    return "combat"
+  }
+  if (r < 0.90) {
+    return {
+      kind: "unstable_asteroid",
+      title: "Unstable Asteroid",
+      text: "A massive asteroid cracks apart ahead — debris is flying toward your ship!",
+      options: [
+        { id: "dodge", label: "Evasive maneuvers" },
+        { id: "brace", label: "Brace for impact" },
+      ],
+    }
+  }
+  return null
 }
 
 /* --------------------------------- actions -------------------------------- */
@@ -1301,6 +1408,8 @@ export type Action =
   | { type: "RUN_SILENT" }
   | { type: "ABORT" }
   | { type: "LAYOVER" }
+  | { type: "EXPLORE_AMBUSH" }
+  | { type: "EXPLORE_ASTEROIDS" }
   | { type: "EVENT_CHOICE"; optionId: string }
   | { type: "COMBAT_ACTION"; action: "fire" | "missile" | "evade" | "flee" }
   | { type: "BUY_UPGRADE"; upgradeId: string }
@@ -1464,6 +1573,22 @@ export function gameReducer(state: GameState, action: Action): GameState {
       if (!isDocked(state)) return state
       const entry = state.market.find((m) => m.goodId === action.goodId)
       if (!entry) return state
+      if (action.goodId === "missiles") {
+        const maxMissiles = 8
+        const maxAffordable = Math.floor(state.credits / entry.price)
+        const qty = clamp(action.qty, 0, Math.min(entry.quantity, maxMissiles - state.ship.missiles, maxAffordable))
+        if (qty <= 0) return state
+        const cost = qty * entry.price
+        return {
+          ...state,
+          credits: state.credits - cost,
+          ship: { ...state.ship, missiles: state.ship.missiles + qty },
+          market: state.market.map((m) =>
+            m.goodId === action.goodId ? { ...m, quantity: m.quantity - qty } : m,
+          ),
+          lastBuyPrice: { ...state.lastBuyPrice, [action.goodId]: entry.price },
+        }
+      }
       const free = state.ship.cargoCapacity - cargoUsed(state.cargo)
       const maxAffordable = Math.floor(state.credits / entry.price)
       const qty = clamp(action.qty, 0, Math.min(entry.quantity, free, maxAffordable))
@@ -1485,6 +1610,21 @@ export function gameReducer(state: GameState, action: Action): GameState {
       if (!isDocked(state)) return state
       const entry = state.market.find((m) => m.goodId === action.goodId)
       if (!entry) return state
+      if (action.goodId === "missiles") {
+        const qty = clamp(action.qty, 0, state.ship.missiles)
+        if (qty <= 0) return state
+        const revenue = qty * entry.price
+        let s: GameState = {
+          ...state,
+          credits: state.credits + revenue,
+          ship: { ...state.ship, missiles: state.ship.missiles - qty },
+          market: state.market.map((m) =>
+            m.goodId === action.goodId ? { ...m, quantity: m.quantity + qty } : m,
+          ),
+        }
+        s = log(s, `Sold ${qty} missiles for ${revenue} cr.`, "good")
+        return s
+      }
       const held = state.cargo[action.goodId] ?? 0
       const qty = clamp(action.qty, 0, held)
       if (qty <= 0) return state
@@ -1582,9 +1722,6 @@ export function gameReducer(state: GameState, action: Action): GameState {
           ship.maxFuel += 5
           ship.fuel = ship.maxFuel
           break
-        case "missile":
-          ship.missiles += 2
-          break
       }
       let s: GameState = { ...state, ship, credits: state.credits - dynamicCost, installedUpgrades: [...state.installedUpgrades, upgrade.id] }
       s = log(s, `Installed ${upgrade.name} for ${dynamicCost} cr.`, "good")
@@ -1650,6 +1787,30 @@ export function gameReducer(state: GameState, action: Action): GameState {
       }
       s = log(s, `Turn ${s.turn}: layover at ${system.name} — markets shift. (150 cr)`, "info")
       return settleLeg(s)
+    }
+
+    case "EXPLORE_AMBUSH": {
+      if (!isDocked(state)) return state
+      if (state.ship.fuel < 2) return log(state, "Need at least 2 ly fuel for an ambush patrol.", "bad")
+      const system = SYSTEMS_BY_ID[state.currentSystemId]
+      const legs = randInt(2, 4)
+      const s: GameState = {
+        ...state,
+        voyage: { destinationId: system.id, legsTotal: legs, legsDone: 0, exploration: "ambush", originSystemId: system.id },
+      }
+      return advanceLeg(s, false)
+    }
+
+    case "EXPLORE_ASTEROIDS": {
+      if (!isDocked(state)) return state
+      if (state.ship.fuel < 2) return log(state, "Need at least 2 ly fuel for a mining expedition.", "bad")
+      const system = SYSTEMS_BY_ID[state.currentSystemId]
+      const legs = randInt(2, 4)
+      const s: GameState = {
+        ...state,
+        voyage: { destinationId: system.id, legsTotal: legs, legsDone: 0, exploration: "asteroids", originSystemId: system.id },
+      }
+      return advanceLeg(s, false)
     }
 
     case "EVENT_CHOICE": {
@@ -2080,6 +2241,76 @@ export function gameReducer(state: GameState, action: Action): GameState {
         return settleLeg(s)
       }
 
+      // ---- Exploration events ----
+      if (ev.kind === "ambush_opportunity") {
+        if (action.optionId === "engage") {
+          const enemy = createPirate(region.danger, s.turn, s.difficulty)
+          // First strike — player fires a free volley before combat
+          const freeDmg = Math.round(s.ship.weaponDamage * crewDamageMult(s.crew) * rand(1.1, 1.4))
+          const damagedEnemy = damageEnemy(enemy, freeDmg)
+          s = { ...s, phase: "combat", enemy: damagedEnemy, playerEvading: false }
+          s = log(s, `Ambush! Your first strike deals ${freeDmg} damage to the ${enemy.name}!`, "combat")
+          return s
+        }
+        s = log(s, "You let the contact slip away. The hunt continues.", "info")
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "asteroid_field_explore") {
+        if (action.optionId === "mine") {
+          const bonus = scannerBonus(s.scannerLevel)
+          if (chance(0.25)) {
+            const dmg = randInt(8, 22)
+            s = applyDamageToShip(s, dmg)
+            s = log(s, `A rock slams your hull for ${dmg} damage while mining!`, "bad")
+            if (s.ship.hull <= 0) {
+              s = { ...s, ship: { ...s.ship, hull: 0 }, phase: "gameover" }
+              s = log(s, "The asteroid field tears your ship apart...", "bad")
+              return s
+            }
+          }
+          const free = s.ship.cargoCapacity - cargoUsed(s.cargo)
+          const amount = Math.min(free, randInt(3 + bonus.cargoBoost, 8 + bonus.cargoBoost))
+          if (amount > 0) {
+            s = { ...s, cargo: { ...s.cargo, minerals: (s.cargo.minerals ?? 0) + amount } }
+            s = log(s, `Mined ${amount}t of Minerals from the field.`, "good")
+          } else {
+            s = log(s, "Rich ore here, but your hold is full.", "info")
+          }
+        } else {
+          s = log(s, "You plot a careful course around the field.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "unstable_asteroid") {
+        if (action.optionId === "dodge") {
+          if (chance(0.6 + crewEvadeBonus(s.crew))) {
+            s = log(s, "You weave through the debris field — no damage.", "good")
+          } else {
+            const dmg = randInt(10, 25)
+            s = applyDamageToShip(s, dmg)
+            s = log(s, `Debris clips your hull for ${dmg} damage!`, "bad")
+            if (s.ship.hull <= 0) {
+              s = { ...s, ship: { ...s.ship, hull: 0 }, phase: "gameover" }
+              s = log(s, "The asteroid debris shreds your hull...", "bad")
+              return s
+            }
+          }
+        } else {
+          const dmg = randInt(15, 30)
+          s = applyDamageToShip(s, dmg)
+          s = { ...s, ship: { ...s.ship, shield: Math.max(0, s.ship.shield - 5) } }
+          s = log(s, `The asteroid slams into you for ${dmg} damage! Shields weakened.`, "bad")
+          if (s.ship.hull <= 0) {
+            s = { ...s, ship: { ...s.ship, hull: 0 }, phase: "gameover" }
+            s = log(s, "The asteroid impact annihilates your ship...", "bad")
+            return s
+          }
+        }
+        return settleLeg(s)
+      }
+
       return settleLeg(s)
     }
 
@@ -2089,7 +2320,6 @@ export function gameReducer(state: GameState, action: Action): GameState {
       const activeCount = state.missions.filter(m => !m.completed && !m.failed).length
       if (activeCount >= 4) return log(state, "Mission roster full (max 4).", "bad")
       if (state.missions.some((m) => m.id === mission.id)) return state
-      if (state.missions.some((m) => !m.completed && !m.failed && m.sourceSystemId === state.currentSystemId)) return state
       const withId = { ...mission, id: state.nextMissionId, sourceSystemId: state.currentSystemId }
       let s: GameState = {
         ...state,

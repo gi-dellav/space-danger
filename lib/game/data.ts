@@ -70,6 +70,7 @@ export const GOODS: Good[] = [
   { id: "luxuries", name: "Luxuries", basePrice: 780 },
   { id: "firearms", name: "Firearms", basePrice: 620, illegal: true },
   { id: "narcotics", name: "Narcotics", basePrice: 1150, illegal: true },
+  { id: "missiles", name: "Homing Missiles", basePrice: 350 },
 ]
 
 export const GOODS_BY_ID: Record<string, Good> = Object.fromEntries(
@@ -94,11 +95,11 @@ export const ECONOMY_PROFILE: Record<
     demands: ["minerals", "food", "luxuries"],
   },
   Industrial: {
-    produces: ["machinery", "computers", "firearms"],
+    produces: ["machinery", "computers", "firearms", "missiles"],
     demands: ["food", "textiles", "minerals"],
   },
   "High-Tech": {
-    produces: ["computers", "medicine", "luxuries"],
+    produces: ["computers", "medicine", "luxuries", "missiles"],
     demands: ["alloys", "textiles", "food", "narcotics"],
   },
 }
@@ -312,13 +313,6 @@ export const UPGRADES: Upgrade[] = [
     description: "Extend your jump range with auxiliary fuel tanks.",
     cost: 700,
     minTechLevel: 4,
-  },
-  {
-    id: "missile",
-    name: "Missile Pylon (+2 missiles)",
-    description: "Restock homing missiles for emergencies.",
-    cost: 500,
-    minTechLevel: 2,
   },
   {
     id: "scanner",
