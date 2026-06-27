@@ -1,11 +1,18 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { SYSTEMS_BY_ID, UPGRADES } from "@/lib/game/data"
+import { DIFFICULTY_CONFIG, SYSTEMS_BY_ID, UPGRADES } from "@/lib/game/data"
 import type { Action } from "@/lib/game/engine"
 import type { GameState } from "@/lib/game/types"
 import { cn } from "@/lib/utils"
 import { Panel } from "./ui"
+
+function upgradeCost(state: GameState, upgradeId: string): number {
+  const upgrade = UPGRADES.find((u) => u.id === upgradeId)
+  if (!upgrade) return 0
+  const ownedCount = state.installedUpgrades.filter(id => id === upgradeId).length
+  return Math.round(upgrade.cost * (1 + ownedCount + state.turn * DIFFICULTY_CONFIG[state.difficulty].upgradeCostScale))
+}
 
 export function ShipyardView({
   state,
@@ -69,8 +76,10 @@ export function ShipyardView({
       >
         <ul className="flex flex-col gap-2">
           {UPGRADES.map((u) => {
+            const cost = upgradeCost(state, u.id)
+            const ownedCount = state.installedUpgrades.filter(id => id === u.id).length
             const lockedTech = system.techLevel < u.minTechLevel
-            const tooPoor = state.credits < u.cost
+            const tooPoor = state.credits < cost
             const disabled = lockedTech || tooPoor
             return (
               <li
@@ -88,7 +97,7 @@ export function ShipyardView({
                       tooPoor ? "text-destructive" : "text-primary",
                     )}
                   >
-                    {u.cost.toLocaleString()} cr
+                    {cost.toLocaleString()} cr
                   </span>
                   <Button
                     size="sm"
@@ -96,7 +105,11 @@ export function ShipyardView({
                     onClick={() => dispatch({ type: "BUY_UPGRADE", upgradeId: u.id })}
                     className="h-8"
                   >
-                    {lockedTech ? `Tech ${u.minTechLevel}` : "Install"}
+                    {lockedTech
+                      ? `Tech ${u.minTechLevel}`
+                      : ownedCount > 0
+                        ? `Upgrade ×${ownedCount + 1}`
+                        : "Install"}
                   </Button>
                 </div>
               </li>

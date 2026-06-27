@@ -115,11 +115,11 @@ export function generateMarket(system: StarSystem, factionRep?: number): MarketE
     let qty = randInt(8, 22)
 
     if (profile.produces.includes(good.id)) {
-      mult = rand(0.55, 0.78)
-      qty = randInt(22, 48)
+      mult = rand(0.35, 0.58)
+      qty = randInt(28, 56)
     } else if (profile.demands.includes(good.id)) {
-      mult = rand(1.35, 1.75)
-      qty = randInt(2, 10)
+      mult = rand(1.65, 2.25)
+      qty = randInt(1, 7)
     } else {
       mult = rand(0.9, 1.18)
     }
@@ -1544,7 +1544,8 @@ export function gameReducer(state: GameState, action: Action): GameState {
       const system = SYSTEMS_BY_ID[state.currentSystemId]
       if (system.techLevel < upgrade.minTechLevel)
         return log(state, `${upgrade.name} requires Tech Level ${upgrade.minTechLevel}.`, "bad")
-      const dynamicCost = Math.round(upgrade.cost * (1 + state.turn * DIFFICULTY_CONFIG[state.difficulty].upgradeCostScale))
+      const ownedCount = state.installedUpgrades.filter(id => id === upgrade.id).length
+      const dynamicCost = Math.round(upgrade.cost * (1 + ownedCount + state.turn * DIFFICULTY_CONFIG[state.difficulty].upgradeCostScale))
       if (state.credits < dynamicCost)
         return log(state, `Not enough credits for ${upgrade.name} (${dynamicCost.toLocaleString()} cr).`, "bad")
 
