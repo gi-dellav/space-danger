@@ -57,6 +57,14 @@ export function migrateState(state: GameState): GameState {
   if (!s.difficulty) {
     s.difficulty = "normal"
   }
+  // Ensure factionTrades exists
+  if (!s.factionTrades) {
+    s.factionTrades = []
+  }
+  // Ensure warCooldown exists
+  if (s.warCooldown === undefined) {
+    s.warCooldown = 0
+  }
   return s
 }
 

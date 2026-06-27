@@ -43,6 +43,13 @@ export interface MarketEntry {
   quantity: number // units available to buy at this station
 }
 
+export interface FactionTrade {
+  factionId: FactionId
+  goodId: string
+  qty: number
+  price: number
+}
+
 export interface Ship {
   hull: number
   maxHull: number
@@ -201,4 +208,6 @@ export interface GameState {
   lastBuyPrice: Record<string, number>
   pendingFactionMission: import("./types").Mission | null
   factionMissionRequestedThisTurn: boolean
+  factionTrades: FactionTrade[]
+  warCooldown: number
 }

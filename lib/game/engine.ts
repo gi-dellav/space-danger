@@ -22,6 +22,7 @@ import type {
   Difficulty,
   Enemy,
   FactionId,
+  FactionTrade,
   GameEvent,
   GameState,
   LogEntry,
@@ -159,6 +160,37 @@ export function generateMarket(system: StarSystem, factionRep?: number): MarketE
     entries.push({ goodId: "missiles", price, quantity: qty })
   }
   return entries
+}
+
+/* ---------------------------- faction trades ----------------------------- */
+
+function generateFactionTrades(system: StarSystem, factionRep: Record<FactionId, number>, maxCargo: number): FactionTrade[] {
+  const trades: FactionTrade[] = []
+
+  for (const faction of FACTIONS) {
+    const rep = factionRep[faction.id] ?? 0
+    if (rep < 2) continue
+    if (system.factionId !== faction.id) continue
+
+    const numOffers = rep >= 8 ? 3 : rep >= 5 ? 2 : 1
+    const discount = 0.1 + ((rep - 2) / 8) * 0.4
+
+    const usedGoods = new Set<string>()
+    for (let i = 0; i < numOffers; i++) {
+      const available = GOODS.filter((g) => !usedGoods.has(g.id))
+      if (available.length === 0) break
+      const good = available[randInt(0, available.length - 1)]
+      usedGoods.add(good.id)
+
+      const minQty = Math.max(1, Math.floor(maxCargo * 0.1))
+      const maxQty = Math.max(minQty, Math.floor(maxCargo * 0.5))
+      const qty = randInt(minQty, maxQty)
+      const price = Math.max(1, Math.round(good.basePrice * qty * (1 - discount)))
+
+      trades.push({ factionId: faction.id, goodId: good.id, qty, price })
+    }
+  }
+  return trades
 }
 
 /* ------------------------------- missions --------------------------------- */
@@ -476,6 +508,8 @@ export function createInitialState(): GameState {
     lastBuyPrice: {},
     pendingFactionMission: null,
     factionMissionRequestedThisTurn: false,
+    factionTrades: [],
+    warCooldown: 0,
   }
 }
 
@@ -1339,6 +1373,7 @@ function checkMissionDeadlines(state: GameState): GameState {
 // End the current leg/turn and return to the command phase.
 function settleLeg(state: GameState): GameState {
   let s = checkMissionDeadlines(state)
+  s = { ...s, warCooldown: Math.max(0, s.warCooldown - 1) }
   // Engineer hull repair (after possible deadline damage)
   const hullRepair = crewHullRepair(s.crew)
   if (hullRepair > 0 && s.ship.hull < s.ship.maxHull && s.ship.hull > 0) {
@@ -1375,6 +1410,7 @@ function settleLeg(state: GameState): GameState {
         factionMissionRequestedThisTurn: false,
         market: generateMarket(escape, s.factionRep[escape.factionId]),
         availableCrew: generateAvailableCrew(escape, s.crew, s.factionRep[escape.factionId]),
+        factionTrades: generateFactionTrades(escape, s.factionRep, s.ship.cargoCapacity),
       }
     } else {
       s = {
@@ -1391,6 +1427,7 @@ function settleLeg(state: GameState): GameState {
         factionMissionRequestedThisTurn: false,
         market: generateMarket(dest, s.factionRep[dest.factionId]),
         availableCrew: generateAvailableCrew(dest, s.crew, s.factionRep[dest.factionId]),
+        factionTrades: generateFactionTrades(dest, s.factionRep, s.ship.cargoCapacity),
       }
       s = log(
         s,
@@ -1409,6 +1446,7 @@ function settleLeg(state: GameState): GameState {
     enemy: null,
     event: null,
     playerEvading: false,
+    factionTrades: [],
   }
 }
 
@@ -1595,6 +1633,8 @@ export type Action =
   | { type: "CASINO_DOUBLE" }
   | { type: "REQUEST_FACTION_MISSION"; factionId: FactionId }
   | { type: "REFUSE_FACTION_MISSION" }
+  | { type: "BUY_FACTION_TRADE"; factionId: FactionId; index: number }
+  | { type: "DECLARE_WAR"; factionId: FactionId }
 
 /* --------------------------------- combat ---------------------------------- */
 
@@ -1954,6 +1994,7 @@ export function gameReducer(state: GameState, action: Action): GameState {
         credits: s.credits - 150,
         market: generateMarket(system, s.factionRep[system.factionId]),
         availableCrew: generateAvailableCrew(system, s.crew, s.factionRep[system.factionId]),
+        factionTrades: generateFactionTrades(system, s.factionRep, s.ship.cargoCapacity),
       }
       s = log(s, `Turn ${s.turn}: layover at ${system.name} — markets shift. (150 cr)`, "info")
       return settleLeg(s)
@@ -2852,6 +2893,88 @@ export function gameReducer(state: GameState, action: Action): GameState {
       s = log(s, payout > next.bet ? `Double down! You win ${payout} cr.` : payout === next.bet ? "Double down push — bet returned." : "Double down bust! You lose.", payout >= next.bet ? "good" : "bad")
       const system = SYSTEMS_BY_ID[s.currentSystemId]
       saveGame("auto", s, system.name, combatRating(s.destroyedShips))
+      return s
+    }
+
+    case "BUY_FACTION_TRADE": {
+      if (!isDocked(state)) return state
+      const trade = state.factionTrades[action.index]
+      if (!trade || trade.factionId !== action.factionId) {
+        return log(state, "Trade offer not available.", "bad")
+      }
+      if (state.credits < trade.price) {
+        return log(state, "Not enough credits for this trade.", "bad")
+      }
+      const good = GOODS_BY_ID[trade.goodId]
+      if (!good) return state
+      if (trade.goodId === "missiles") {
+        if (state.ship.missiles + trade.qty > 8) {
+          return log(state, "Not enough missile capacity (max 8).", "bad")
+        }
+      } else {
+        if (cargoUsed(state.cargo) + trade.qty > state.ship.cargoCapacity) {
+          return log(state, "Not enough cargo space for this trade.", "bad")
+        }
+      }
+      let s: GameState = {
+        ...state,
+        credits: state.credits - trade.price,
+        cargo:
+          trade.goodId === "missiles"
+            ? state.cargo
+            : { ...state.cargo, [trade.goodId]: (state.cargo[trade.goodId] ?? 0) + trade.qty },
+        ship:
+          trade.goodId === "missiles"
+            ? { ...state.ship, missiles: state.ship.missiles + trade.qty }
+            : state.ship,
+        factionTrades: state.factionTrades.filter((_, i) => i !== action.index),
+      }
+      s = changeRep(s, action.factionId, 1)
+      s = log(
+        s,
+        `Bought ${trade.qty}t of ${good.name} from ${FACTIONS_BY_ID[action.factionId].name} for ${trade.price} cr (faction deal).`,
+        "good",
+      )
+      return s
+    }
+
+    case "DECLARE_WAR": {
+      if (!isDocked(state)) return state
+      if (state.warCooldown > 0) {
+        return log(
+          state,
+          `Cannot declare war yet. Cooldown: ${state.warCooldown} turn${state.warCooldown > 1 ? "s" : ""}.`,
+          "bad",
+        )
+      }
+      const rep = state.factionRep[action.factionId] ?? 0
+      if (rep <= -9) {
+        return log(state, `Already at war with ${FACTIONS_BY_ID[action.factionId].name}.`, "bad")
+      }
+      const faction = FACTIONS_BY_ID[action.factionId]
+      if (!faction.rival) {
+        return log(state, `${faction.name} has no rival to side with.`, "bad")
+      }
+      const rivalRep = state.factionRep[faction.rival] ?? 0
+      const targetRepBonus = Math.max(0, rep + 10)
+      const rivalRepBonus = Math.max(0, rivalRep + 10)
+      const reward = state.turn * 50 + targetRepBonus * 100 + rivalRepBonus * 80
+
+      let s: GameState = {
+        ...state,
+        credits: state.credits + reward,
+        warCooldown: 20,
+        factionRep: {
+          ...state.factionRep,
+          [action.factionId]: -10,
+          [faction.rival]: clamp(rivalRep + 3, -10, 10),
+        },
+      }
+      s = log(
+        s,
+        `Declared war on ${faction.name}! ${faction.rival && FACTIONS_BY_ID[faction.rival] ? FACTIONS_BY_ID[faction.rival].name + " welcomes your allegiance." : ""} Received ${reward} cr. (20-turn cooldown)`,
+        "combat",
+      )
       return s
     }
 
