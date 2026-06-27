@@ -137,7 +137,7 @@ export default function FactionsView({
                         }
                       }}
                     >
-                      Declare War (~{warReward.toLocaleString()} cr)
+                      Declare War (+{warReward.toLocaleString()} cr)
                     </Button>
                   )}
                 </div>
