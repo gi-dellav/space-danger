@@ -111,7 +111,7 @@ function systemFactionRep(state: GameState): number {
 export function generateMarket(system: StarSystem, factionRep?: number): MarketEntry[] {
   const profile = ECONOMY_PROFILE[system.economy]
   const repMult = factionRep !== undefined ? repPriceMult(factionRep) : 1
-  const entries = GOODS.map((good) => {
+  const entries = GOODS.filter((g) => g.id !== "missiles").map((good) => {
     let mult = 1
     let qty = randInt(8, 22)
 
