@@ -177,7 +177,7 @@ export function GameShell() {
                 <MissionsView state={state} dispatch={dispatch} />
               </div>
               <div className={tab === "factions" ? "" : "hidden"}>
-                <FactionsView state={state} />
+                <FactionsView state={state} dispatch={dispatch} />
               </div>
               <div className={tab === "crew" ? "" : "hidden"}>
                 <CrewView

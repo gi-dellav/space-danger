@@ -199,4 +199,6 @@ export interface GameState {
   availableCrew: CrewMember[]
   casino: BlackjackState | null
   lastBuyPrice: Record<string, number>
+  pendingFactionMission: import("./types").Mission | null
+  factionMissionRequestedThisTurn: boolean
 }

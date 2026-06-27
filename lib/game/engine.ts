@@ -474,6 +474,8 @@ export function createInitialState(): GameState {
     availableCrew: [],
     casino: null,
     lastBuyPrice: {},
+    pendingFactionMission: null,
+    factionMissionRequestedThisTurn: false,
   }
 }
 
@@ -845,6 +847,168 @@ function legEventTemplates(
         }
       },
     },
+    // --- NEW Faction events ---
+    {
+      weight: 4,
+      generate() {
+        if (factionId !== "imperial") return null
+        return {
+          kind: "imp_bounty",
+          title: "Imperial Bounty Notice",
+          text: "The Imperial Directorate posts a bounty on a notorious pirate lord operating nearby. Hunt them down for glory and credits.",
+          options: [
+            { id: "accept_bounty", label: "Accept the bounty hunt" },
+            { id: "decline_bounty", label: "Decline" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 4,
+      generate() {
+        if (factionId !== "combine") return null
+        return {
+          kind: "combine_research",
+          title: "Combine Research Data",
+          text: "A Combine lab transport was attacked — priceless research data is drifting in a wrecked courier. Retrieve it for a reward.",
+          options: [
+            { id: "recover", label: "Recover the research data" },
+            { id: "ignore", label: "Not interested" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 5,
+      generate() {
+        if (factionId !== "cartel") return null
+        const target = SYSTEMS.filter((s) => s.id !== state.currentSystemId && s.id !== region.id)
+        const dest = target[randInt(0, target.length - 1)]
+        const good = GOODS.filter((g) => g.illegal)[randInt(0, GOODS.filter((g) => g.illegal).length - 1)]
+        const qty = randInt(2, 4)
+        const reward = Math.round(good.basePrice * qty * rand(1.8, 2.5))
+        return {
+          kind: "cartel_smuggle",
+          title: "Cartel Smuggling Run",
+          text: `A Cartel contact needs ${qty}t of ${good.name} moved to ${dest.name}. They'll front the cargo — get it past the patrols. Reward: ${reward} cr.`,
+          options: [
+            { id: "accept_smuggle", label: `Take the run to ${dest.name}` },
+            { id: "decline", label: "Too hot to handle" },
+          ],
+          goodId: good.id,
+          qty,
+          unitPrice: reward,
+        }
+      },
+    },
+    {
+      weight: 4,
+      generate() {
+        if (factionId !== "federation") return null
+        return {
+          kind: "fed_relief",
+          title: "Federation Relief Convoy",
+          text: "A Federation relief convoy is under attack by raiders! They're calling for any nearby ships to assist.",
+          options: [
+            { id: "defend", label: "Defend the convoy" },
+            { id: "ignore", label: "Stay out of it" },
+          ],
+        }
+      },
+    },
+    // --- NEW Independent events ---
+    {
+      weight: 5,
+      generate() {
+        return {
+          kind: "cargo_pod",
+          title: "Abandoned Cargo Pod",
+          text: "A cargo pod drifts in space, its beacon flashing. Scans show intact goods — but the pod's hull shows recent laser scoring. Could be bait.",
+          options: [
+            { id: "salvage", label: "Tractor the pod aboard" },
+            { id: "leave", label: "Leave it — too suspicious" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 4,
+      generate() {
+        const nearest = SYSTEMS.filter((s) => s.id !== state.currentSystemId && s.id !== region.id)
+        const dest = nearest[randInt(0, nearest.length - 1)]
+        const reward = randInt(200, 500)
+        return {
+          kind: "refugee_ship",
+          title: "Refugee Ship",
+          text: `A cramped refugee ship hails you — ${randInt(15, 40)} souls fleeing conflict, desperate for transport to ${dest.name}. They can pay ${reward} cr. Takes 1t of cabin space.`,
+          options: [
+            { id: "help", label: `Transport them to ${dest.name} (${reward} cr)` },
+            { id: "decline", label: "No room for passengers" },
+          ],
+          goodId: dest.id,
+          unitPrice: reward,
+        }
+      },
+    },
+    {
+      weight: 3,
+      generate() {
+        return {
+          kind: "stowaway",
+          title: "Stowaway Discovered",
+          text: "Your engineer reports a stowaway hiding in the cargo bay — a young kid fleeing a Cartel press gang. They beg to stay aboard.",
+          options: [
+            { id: "help", label: "Let them stay (free crew recruit)" },
+            { id: "turnin", label: "Turn them over to the Cartel for a reward" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 4,
+      generate() {
+        if (chance(0.5)) {
+          return {
+            kind: "sensor_ghost",
+            title: "Sensor Ghost",
+            text: "Your long-range scanner pings a massive contact — then it vanishes. Could be a sensor ghost... or a stealthed ship playing dead.",
+            options: [
+              { id: "investigate", label: "Investigate the ghost contact" },
+              { id: "ignore", label: "Ignore — sensor glitch" },
+            ],
+          }
+        }
+        return null
+      },
+    },
+    {
+      weight: 3,
+      generate() {
+        return {
+          kind: "comet_fragment",
+          title: "Comet Fragment",
+          text: "A rare comet core drifts through the sector — rich in exotic isotopes worth a fortune. Mining it is risky but potentially lucrative.",
+          options: [
+            { id: "mine", label: "Deploy mining laser on the comet" },
+            { id: "skip", label: "Skip — too volatile" },
+          ],
+        }
+      },
+    },
+    {
+      weight: 4,
+      generate() {
+        return {
+          kind: "quarantine_zone",
+          title: "Quarantine Zone",
+          text: "A medical blockade cordons off this sector — a Class-3 biohazard warning. Passing through risks contamination, but going around adds a turn.",
+          options: [
+            { id: "sneak", label: "Sneak through the quarantine" },
+            { id: "detour", label: "Take the long way around (+1 turn)" },
+          ],
+        }
+      },
+    },
     // --- Independent events ---
     {
       weight: 6,
@@ -1207,6 +1371,8 @@ function settleLeg(state: GameState): GameState {
         enemy: null,
         event: null,
         playerEvading: false,
+        pendingFactionMission: null,
+        factionMissionRequestedThisTurn: false,
         market: generateMarket(escape, s.factionRep[escape.factionId]),
         availableCrew: generateAvailableCrew(escape, s.crew, s.factionRep[escape.factionId]),
       }
@@ -1221,6 +1387,8 @@ function settleLeg(state: GameState): GameState {
         enemy: null,
         event: null,
         playerEvading: false,
+        pendingFactionMission: null,
+        factionMissionRequestedThisTurn: false,
         market: generateMarket(dest, s.factionRep[dest.factionId]),
         availableCrew: generateAvailableCrew(dest, s.crew, s.factionRep[dest.factionId]),
       }
@@ -1425,6 +1593,8 @@ export type Action =
   | { type: "CASINO_HIT" }
   | { type: "CASINO_STAND" }
   | { type: "CASINO_DOUBLE" }
+  | { type: "REQUEST_FACTION_MISSION"; factionId: FactionId }
+  | { type: "REFUSE_FACTION_MISSION" }
 
 /* --------------------------------- combat ---------------------------------- */
 
@@ -2311,6 +2481,193 @@ export function gameReducer(state: GameState, action: Action): GameState {
         return settleLeg(s)
       }
 
+      // ---- NEW Faction events ----
+      if (ev.kind === "imp_bounty") {
+        if (action.optionId === "accept_bounty") {
+          const enemy = createPirate(region.danger + 2, s.turn, s.difficulty)
+          s = { ...s, phase: "combat", enemy, playerEvading: false }
+          s = log(s, "The pirate lord's ship appears on scope. Weapons hot!", "combat")
+          adjustRep(1, "imperial")
+          return s
+        }
+        s = log(s, "You decline the bounty. The Imperial officer scowls.", "info")
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "combine_research") {
+        if (action.optionId === "recover") {
+          if (chance(0.35)) {
+            const enemy = createPirate(region.danger + 1, s.turn, s.difficulty)
+            s = { ...s, phase: "combat", enemy, playerEvading: false }
+            s = log(s, "The raiders are still nearby! They spring an ambush!", "combat")
+            return s
+          }
+          const reward = randInt(400, 900)
+          s = { ...s, credits: s.credits + reward }
+          adjustRep(1, "combine")
+          s = log(s, `Research data recovered! Combine pays ${reward} cr.`, "good")
+        } else {
+          s = log(s, "You leave the wreck undisturbed.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "cartel_smuggle") {
+        if (action.optionId === "accept_smuggle") {
+          const free = s.ship.cargoCapacity - cargoUsed(s.cargo)
+          const qty = Math.min(ev.qty ?? 2, free)
+          const reward = ev.unitPrice ?? 500
+          if (qty > 0) {
+            s = { ...s, cargo: { ...s.cargo, [ev.goodId!]: (s.cargo[ev.goodId!] ?? 0) + qty }, credits: s.credits + Math.round(reward * 0.5) }
+            adjustRep(1, "cartel")
+            s = log(s, `Cartel fronts ${qty}t of ${GOODS_BY_ID[ev.goodId!]?.name ?? "goods"}. Half the ${reward} cr paid up front.`, "good")
+          } else {
+            s = log(s, "Your hold is full — can't take the cargo.", "bad")
+          }
+        } else {
+          s = log(s, "You pass on the Cartel's offer.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "fed_relief") {
+        if (action.optionId === "defend") {
+          const enemy = createPirate(region.danger + 1, s.turn, s.difficulty)
+          s = { ...s, phase: "combat", enemy, playerEvading: false }
+          s = log(s, "You intercept the raiders! Defend the convoy!", "combat")
+          adjustRep(1, "federation")
+          return s
+        }
+        s = log(s, "You stay clear of the engagement.", "info")
+        return settleLeg(s)
+      }
+
+      // ---- NEW Independent events ----
+      if (ev.kind === "cargo_pod") {
+        if (action.optionId === "salvage") {
+          if (chance(0.3)) {
+            const enemy = createPirate(region.danger + 1, s.turn, s.difficulty)
+            s = { ...s, phase: "combat", enemy, playerEvading: false }
+            s = log(s, "It was a trap! Pirates decloak near the pod!", "combat")
+            return s
+          }
+          const bonus = scannerBonus(s.scannerLevel)
+          const free = s.ship.cargoCapacity - cargoUsed(s.cargo)
+          const good = GOODS.filter((g) => !g.illegal)[randInt(0, GOODS.filter((g) => !g.illegal).length - 1)]
+          const amount = Math.min(free, randInt(1 + bonus.cargoBoost, 5 + bonus.cargoBoost))
+          if (amount > 0) {
+            s = { ...s, cargo: { ...s.cargo, [good.id]: (s.cargo[good.id] ?? 0) + amount } }
+            s = log(s, `Recovered ${amount}t of ${good.name} from the cargo pod.`, "good")
+          } else {
+            s = log(s, "Cargo pod held goods, but your hold is full.", "info")
+          }
+        } else {
+          s = log(s, "You leave the pod drifting — better safe than sorry.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "refugee_ship") {
+        if (action.optionId === "help") {
+          const free = s.ship.cargoCapacity - cargoUsed(s.cargo)
+          const reward = ev.unitPrice ?? 300
+          if (free >= 1) {
+            s = { ...s, credits: s.credits + reward }
+            s = log(s, `Refugees safely transported. They pool ${reward} cr in gratitude.`, "good")
+          } else {
+            s = log(s, "No cabin space available for the refugees.", "bad")
+          }
+        } else {
+          s = log(s, "You apologise and press on. The refugee ship drifts away.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "stowaway") {
+        if (action.optionId === "help") {
+          if (s.crew.length >= 4) {
+            s = log(s, "No bunks available. You give the kid some credits and drop them at the next port.", "info")
+            s = { ...s, credits: s.credits - 50 }
+            adjustRep(1, "federation")
+          } else {
+            const member: CrewMember = {
+              id: s.nextCrewId,
+              name: CREW_NAMES[randInt(0, CREW_NAMES.length - 1)],
+              role: (["pilot", "gunner", "engineer", "medic", "navigator"] as CrewRole[])[randInt(0, 4)],
+              wagePerTurn: 20,
+              skill: randInt(1, 2),
+            }
+            s = { ...s, crew: [...s.crew, member], nextCrewId: s.nextCrewId + 1 }
+            s = log(s, `${member.name} joins the crew as a ${member.role} (skill ${member.skill}, ${member.wagePerTurn} cr/turn).`, "good")
+          }
+          adjustRep(-1, "cartel")
+        } else {
+          const reward = randInt(100, 300)
+          s = { ...s, credits: s.credits + reward }
+          adjustRep(1, "cartel")
+          s = log(s, `You turn the stowaway over to a Cartel agent. They pay you ${reward} cr.`, "bad")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "sensor_ghost") {
+        if (action.optionId === "investigate") {
+          if (chance(0.4)) {
+            const enemy = createPirate(region.danger + 2, s.turn, s.difficulty)
+            s = { ...s, phase: "combat", enemy, playerEvading: false }
+            s = log(s, "Not a ghost — a stealthed pirate! They decloak and open fire!", "combat")
+            return s
+          }
+          const reward = randInt(150, 400)
+          s = { ...s, credits: s.credits + reward }
+          s = log(s, `False alarm — but you find a drifting salvage beacon worth ${reward} cr.`, "good")
+        } else {
+          s = log(s, "You dismiss the contact. Probably nothing.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "comet_fragment") {
+        if (action.optionId === "mine") {
+          if (chance(0.3)) {
+            const dmg = randInt(12, 28)
+            s = applyDamageToShip(s, dmg)
+            s = log(s, `The comet fragment destabilises! ${dmg} damage from ice shrapnel!`, "bad")
+            if (s.ship.hull <= 0) {
+              s = { ...s, ship: { ...s.ship, hull: 0 }, phase: "gameover" }
+              s = log(s, "The comet explosion tears your ship apart...", "bad")
+              return s
+            }
+          }
+          const bonus = scannerBonus(s.scannerLevel)
+          const free = s.ship.cargoCapacity - cargoUsed(s.cargo)
+          const amount = Math.min(free, randInt(2 + bonus.cargoBoost, 5 + bonus.cargoBoost))
+          if (amount > 0) {
+            s = { ...s, cargo: { ...s.cargo, minerals: (s.cargo.minerals ?? 0) + amount } }
+            s = log(s, `Mined ${amount}t of rare isotopes from the comet!`, "good")
+          }
+        } else {
+          s = log(s, "You give the volatile comet a wide berth.", "info")
+        }
+        return settleLeg(s)
+      }
+
+      if (ev.kind === "quarantine_zone") {
+        if (action.optionId === "sneak") {
+          if (chance(0.5 + crewPoliceEvade(s.crew))) {
+            s = log(s, "You slip through the blockade undetected. Clean passage.", "good")
+          } else {
+            const dmg = randInt(5, 15)
+            s = applyDamageToShip(s, dmg)
+            s = log(s, `Medical patrol scans you — radiation burst deals ${dmg} damage!`, "bad")
+          }
+        } else {
+          s = { ...s, turn: s.turn + 1 }
+          s = log(s, "You take the long route around the quarantine zone. (+1 turn)", "info")
+        }
+        return settleLeg(s)
+      }
+
       return settleLeg(s)
     }
 
@@ -2496,6 +2853,123 @@ export function gameReducer(state: GameState, action: Action): GameState {
       const system = SYSTEMS_BY_ID[s.currentSystemId]
       saveGame("auto", s, system.name, combatRating(s.destroyedShips))
       return s
+    }
+
+    case "REQUEST_FACTION_MISSION": {
+      if (!isDocked(state)) return state
+      if (state.factionMissionRequestedThisTurn) return log(state, "Already requested a faction mission this turn.", "bad")
+      const faction = FACTIONS_BY_ID[action.factionId]
+      const system = SYSTEMS_BY_ID[state.currentSystemId]
+      const rep = state.factionRep[action.factionId] ?? 0
+
+      const missionGenerators: Array<{
+        faction: FactionId
+        generate: () => import("./types").Mission | null
+      }> = [
+        {
+          faction: "federation",
+          generate() {
+            const target = pickTargetSystem(system.id, 1, 3)
+            if (!target) return null
+            return {
+              id: 0,
+              type: "bounty",
+              title: `Federation Patrol Duty: ${target.name}`,
+              description: `Federation Command needs a pirate sweep near ${target.name}. Hunt down hostiles and keep the spacelanes safe.`,
+              targetSystemId: target.id,
+              factionId: "federation",
+              deadlineTurn: state.turn + legsFor(system, target) + randInt(4, 7),
+              reward: randInt(500, 1100),
+              completed: false,
+              failed: false,
+            }
+          },
+        },
+        {
+          faction: "combine",
+          generate() {
+            const target = pickTargetSystem(system.id, 1, 3)
+            if (!target) return null
+            const good = (["computers", "medicine", "machinery"] as string[])[randInt(0, 2)]
+            const qty = randInt(3, 7)
+            return {
+              id: 0,
+              type: "delivery",
+              title: `Combine Supply Contract: ${target.name}`,
+              description: `The Combine needs ${qty}t of ${GOODS_BY_ID[good]?.name ?? good} delivered to ${target.name}. Priority corporate contract.`,
+              targetSystemId: target.id,
+              factionId: "combine",
+              requiredGoodId: good,
+              requiredQty: qty,
+              deadlineTurn: state.turn + legsFor(system, target) + randInt(3, 6),
+              reward: Math.round((GOODS_BY_ID[good]?.basePrice ?? 200) * qty * rand(1.5, 2.2)),
+              completed: false,
+              failed: false,
+            }
+          },
+        },
+        {
+          faction: "imperial",
+          generate() {
+            const target = pickTargetSystem(system.id, 1, 3)
+            if (!target) return null
+            return {
+              id: 0,
+              type: "courier",
+              title: `Imperial Dispatch to ${target.name}`,
+              description: `The Imperial Directorate requires a secure diplomatic courier to ${target.name}. No cargo space needed — carry the sealed orders.`,
+              targetSystemId: target.id,
+              factionId: "imperial",
+              deadlineTurn: state.turn + legsFor(system, target) + randInt(2, 4),
+              reward: randInt(400, 900),
+              completed: false,
+              failed: false,
+            }
+          },
+        },
+        {
+          faction: "cartel",
+          generate() {
+            const target = pickTargetSystem(system.id, 1, 3)
+            if (!target) return null
+            const good = GOODS.filter((g) => g.illegal)[randInt(0, GOODS.filter((g) => g.illegal).length - 1)]
+            const qty = randInt(2, 4)
+            return {
+              id: 0,
+              type: "smuggle",
+              title: `Cartel Run to ${target.name}`,
+              description: `A Cartel boss needs ${qty}t of ${good.name} moved discreetly to ${target.name}. Big risk, bigger payout.`,
+              targetSystemId: target.id,
+              factionId: "cartel",
+              requiredGoodId: good.id,
+              requiredQty: qty,
+              deadlineTurn: state.turn + legsFor(system, target) + randInt(3, 6),
+              reward: Math.round(good.basePrice * qty * rand(2.2, 3.2)),
+              completed: false,
+              failed: false,
+            }
+          },
+        },
+      ]
+
+      const gen = missionGenerators.find((g) => g.faction === action.factionId)
+      if (!gen) return log(state, "No mission available from this faction right now.", "bad")
+      const mission = gen.generate()
+      if (!mission) return log(state, "No suitable target systems in range.", "bad")
+
+      return {
+        ...state,
+        pendingFactionMission: mission,
+        factionMissionRequestedThisTurn: true,
+      }
+    }
+
+    case "REFUSE_FACTION_MISSION": {
+      if (!state.pendingFactionMission) return state
+      return {
+        ...state,
+        pendingFactionMission: null,
+      }
     }
 
     default:
